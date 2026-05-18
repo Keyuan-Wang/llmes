@@ -37,7 +37,7 @@ class LmtCrossShallowScenario : public benchmark_runner::IBenchScenario {
     const std::uint64_t buy_id = base + args.orders + args.levels + 100;
     const auto res = book.add_limit_order(buy_id, matching::Side::Buy,
                                           static_cast<std::int64_t>(price),
-                                          static_cast<std::uint32_t>(qty),
+                                          qty,
                                           buy_id);
     if (res.code == matching::ErrorCode::Success) ++ok;
     return true;

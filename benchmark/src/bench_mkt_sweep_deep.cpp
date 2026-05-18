@@ -25,7 +25,7 @@ class MktSweepDeepScenario : public benchmark_runner::IBenchScenario {
     benchmark_runner::PrefillSellBook(book, args.orders, args.levels, base);
     const std::uint64_t mkt_id = base + args.orders + args.levels + 100;
     const auto res = book.add_market_order(mkt_id, matching::Side::Buy,
-                                           static_cast<std::uint32_t>(args.levels * 2),
+                                           args.levels * 2,
                                            mkt_id);
     if (res.code == matching::ErrorCode::Success ||
         res.code == matching::ErrorCode::MarketRemainderCancelled) {

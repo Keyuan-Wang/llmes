@@ -6,72 +6,19 @@
 #pragma once
 
 #include <cstdint>
-#include <list>
-#include <map>
 #include <unordered_set>
-#include <vector>
+#include <map>
+#include <unordered_map>
+
+
+#include "types.hpp"
+#include "intrusive_list.hpp"
+#include "order_pool.hpp"
 
 namespace matching {
 
-/**
- * @brief Side of an order in the central limit order book.
- */
-enum class Side {
-    Buy,   ///< Bid side (buy book).
-    Sell,  ///< Ask side (sell book).
-};
 
-/**
- * @brief One execution against a resting (maker) order.
- *
- * @details Price is the maker's resting price. The taker is the aggressor
- *          (the order that triggered this match in the current request).
- */
-struct Trade {
-    std::uint64_t taker_order_id;  ///< Aggressor order identifier.
-    std::uint64_t maker_order_id;  ///< Resting order identifier.
-    std::int64_t price;            ///< Execution price (maker level price).
-    std::uint32_t quantity;        ///< Traded quantity.
-};
-
-/**
- * @brief Result or error code for an operation on the order book.
- */
-enum class ErrorCode {
-    Success,                   ///< Operation completed as requested.
-    InvalidQuantity,           ///< Non-positive quantity (e.g. zero).
-    DuplicateOrderId,          ///< Order id already present on the book.
-    UnknownOrderId,            ///< Cancel: id not on book (recorded as pending cancel).
-    PendingCancelExists,       ///< Insert rejected: id was cancelled before insert.
-    MarketRemainderCancelled,  ///< Market order: leftover quantity not posted to book.
-};
-
-/**
- * @brief Aggregated outcome of a single @ref OrderBook::add_limit_order or
- *        @ref OrderBook::add_market_order call.
- */
-struct AddResult {
-    ErrorCode code{ErrorCode::Success};  ///< Primary status of the request.
-
-    std::uint32_t initial_quantity{0};   ///< Requested quantity at entry.
-    std::uint32_t filled_quantity{0};      ///< Total matched quantity.
-    std::uint32_t remaining_quantity{0};   ///< Unfilled quantity after matching / rest.
-
-    std::vector<Trade> trades{};           ///< Individual fills, in chronological order.
-};
-
-/**
- * @brief Resting order stored at a price level (FIFO queue element).
- */
-struct Order {
-    std::uint64_t id;         ///< Unique order identifier.
-    std::int64_t price;       ///< Limit price while resting on the book.
-    std::uint64_t quantity;   ///< Remaining quantity.
-    std::uint64_t timestamp;  ///< Application timestamp (ordering / audit).
-};
-
-/** @brief FIFO queue of orders at one price on the ask or bid side. */
-using PriceLevel = std::list<Order>;
+using PriceLevel = IntrusiveList;
 
 /**
  * @brief Ask side: ascending price map; @c begin() is best (lowest) ask.
@@ -116,7 +63,7 @@ public:
      * @retval ErrorCode::DuplicateOrderId @p order_id already in @ref active_ids_.
      */
     AddResult add_limit_order(std::uint64_t order_id, Side side, std::int64_t price,
-                              std::uint32_t quantity, std::uint64_t timestamp);
+                              std::uint64_t quantity, std::uint64_t timestamp);
 
     /**
      * @brief Submit a market order: match aggressively; do not post remainder to the book.
@@ -130,7 +77,7 @@ public:
      * @retval ErrorCode::Success Fully filled.
      * @retval ErrorCode::MarketRemainderCancelled Partially filled; remainder discarded.
      */
-    AddResult add_market_order(std::uint64_t order_id, Side side, std::uint32_t quantity,
+    AddResult add_market_order(std::uint64_t order_id, Side side, std::uint64_t quantity,
                                std::uint64_t timestamp);
 
     /**
@@ -153,6 +100,8 @@ public:
 private:
     BidBook bids_{};   ///< Bid price levels (best bid at @c begin()).
     AskBook asks_{};   ///< Ask price levels (best ask at @c begin()).
+
+    OrderPool pool_{100000};
 
     std::unordered_set<std::uint64_t> active_ids_{};         ///< Ids currently resting on book.
     std::unordered_set<std::uint64_t> pending_cancel_ids_{}; ///< Early cancel ids not yet seen on insert.

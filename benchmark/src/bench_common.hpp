@@ -128,7 +128,7 @@ class PerfGroup {
    * @param group_fd Leader FD, or -1 to make this counter the group leader.
    * @return true if the counter was opened and added to the group.
    */
-  bool OpenCounter(std::uint32_t type, std::uint64_t config, int group_fd) {
+  bool OpenCounter(std::uint64_t type, std::uint64_t config, int group_fd) {
     struct perf_event_attr pe {};
     pe.type = type;
     pe.size = sizeof(struct perf_event_attr);

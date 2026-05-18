@@ -3,9 +3,11 @@
  * @brief Implementation of @ref matching::OrderBook (Phase 1: map + list, FIFO per level).
  */
 
-#include "matching/order_book.hpp"
-
 #include <algorithm>
+#include <cassert>
+
+#include "matching/order_book.hpp"
+#include "matching/order_pool.hpp"
 
 namespace matching {
 
@@ -61,7 +63,7 @@ ErrorCode OrderBook::cancel_order(std::uint64_t order_id) {
  * @copydoc OrderBook::add_limit_order
  */
 AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int64_t price,
-                                     std::uint32_t quantity, std::uint64_t timestamp) {
+                                     std::uint64_t quantity, std::uint64_t timestamp) {
     AddResult out{};
     out.initial_quantity = quantity;
 
@@ -93,12 +95,13 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
             }
 
             auto level_it = opposite_book.begin();
-            auto& queue = level_it->second;
 
-            while (remaining > 0 && !queue.empty()) {
-                Order& maker = queue.front();
-                const std::uint32_t fill =
-                    static_cast<std::uint32_t>(std::min(remaining, maker.quantity));
+            auto& price_level = level_it->second;   // an intrusive list
+
+            while (remaining > 0 && !price_level.empty()) {
+                Order& maker = price_level.front();
+
+                const std::uint64_t fill = std::min(remaining, maker.quantity);
 
                 out.trades.emplace_back(order_id, maker.id, maker.price, fill);
 
@@ -108,13 +111,15 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
 
                 if (maker.quantity == 0) {
                     active_ids_.erase(maker.id);
-                    queue.pop_front();
+
+                    Order* maker_ptr = &maker;
+                    price_level.erase(*maker_ptr);
+                    pool_.release(maker_ptr);
                 }
             }
-
-            if (queue.empty()) {
+            
+            if (price_level.empty())
                 opposite_book.erase(level_it);
-            }
         }
     };
 
@@ -124,21 +129,24 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
         match_against(bids_);
     }
 
-    out.remaining_quantity = static_cast<std::uint32_t>(remaining);
+    out.remaining_quantity = remaining;
 
     if (remaining == 0) {
         out.code = ErrorCode::Success;
         return out;
     }
 
-    const Order resting{order_id, price, remaining, timestamp};
-    if (side == Side::Buy) {
-        bids_[price].push_back(resting);
-    } else {
-        asks_[price].push_back(resting);
-    }
+    // add remaining limit order to book
+    Order* node = pool_.acquire();
+    // TODO: WHAT IF POOL IS ALREADY EMPTY?
+    assert(node != nullptr);
 
+    *node = {order_id, price, remaining, timestamp};
+    if (side == Side::Buy)  bids_[price].push_back(*node);
+    else                    asks_[price].push_back(*node);
     active_ids_.insert(order_id);
+
+    // output
     out.code = ErrorCode::Success;
     return out;
 }
@@ -146,7 +154,7 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
 /**
  * @copydoc OrderBook::add_market_order
  */
-AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::uint32_t quantity,
+AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::uint64_t quantity,
                                       std::uint64_t timestamp) {
     (void)timestamp;
 
@@ -175,12 +183,12 @@ AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::ui
     auto match_against = [&](auto& opposite_book) {
         while (remaining > 0 && !opposite_book.empty()) {
             auto level_it = opposite_book.begin();
-            auto& queue = level_it->second;
+            auto& price_level = level_it->second;   // an intrusive list
 
-            while (remaining > 0 && !queue.empty()) {
-                Order& maker = queue.front();
-                const std::uint32_t fill =
-                    static_cast<std::uint32_t>(std::min(remaining, maker.quantity));
+            while (remaining > 0 && !price_level.empty()) {
+                Order& maker = price_level.front();
+
+                const std::uint64_t fill = std::min(remaining, maker.quantity);
 
                 out.trades.emplace_back(order_id, maker.id, maker.price, fill);
 
@@ -190,13 +198,15 @@ AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::ui
 
                 if (maker.quantity == 0) {
                     active_ids_.erase(maker.id);
-                    queue.pop_front();
+
+                    Order* maker_ptr = &maker;
+                    price_level.erase(*maker_ptr);
+                    pool_.release(maker_ptr);
                 }
             }
 
-            if (queue.empty()) {
+            if (price_level.empty())
                 opposite_book.erase(level_it);
-            }
         }
     };
 
@@ -206,7 +216,7 @@ AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::ui
         match_against(bids_);
     }
 
-    out.remaining_quantity = static_cast<std::uint32_t>(remaining);
+    out.remaining_quantity = remaining;
 
     if (remaining == 0) {
         out.code = ErrorCode::Success;
