@@ -17,9 +17,9 @@ class LmtRestScenario : public benchmark_runner::IBenchScenario {
  public:
   const char* Name() const override { return "lmt_rest"; }
 
-  bool PrepareAndRun(const benchmark_runner::Args& /*args*/, std::uint64_t op_idx,
+  bool PrepareAndRun(const benchmark_runner::Args& args, std::uint64_t op_idx,
                      std::uint64_t& ok) const override {
-    matching::OrderBook book;
+    matching::OrderBook book(args.orders + args.levels + 100);
     const std::uint64_t id = 100'000ULL + op_idx;
     const auto res = book.add_limit_order(id, matching::Side::Buy, 900, 10, id);
     if (res.code == matching::ErrorCode::Success) ++ok;

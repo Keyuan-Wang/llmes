@@ -19,7 +19,7 @@ class DupRejectScenario : public benchmark_runner::IBenchScenario {
 
   bool PrepareAndRun(const benchmark_runner::Args& args, std::uint64_t op_idx,
                      std::uint64_t& ok) const override {
-    matching::OrderBook book;
+    matching::OrderBook book(args.orders + args.levels + 100);
     const std::uint64_t base = 500'000ULL + op_idx * 10'000ULL;
     benchmark_runner::PrefillSellBook(book, args.orders, args.levels, base);
     (void)book.add_limit_order(7, matching::Side::Buy, 900, 10, base + 1);

@@ -23,7 +23,7 @@ class LmtCrossShallowScenario : public benchmark_runner::IBenchScenario {
 
   bool PrepareAndRun(const benchmark_runner::Args& args, std::uint64_t op_idx,
                      std::uint64_t& ok) const override {
-    matching::OrderBook book;
+    matching::OrderBook book(args.orders + args.levels + 100);
     const std::uint64_t base = 700'000ULL + op_idx * 10'000ULL;
     benchmark_runner::PrefillSellBook(book, args.orders, args.levels, base);
 

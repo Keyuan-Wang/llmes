@@ -44,7 +44,7 @@ using BidBook = std::map<std::int64_t, PriceLevel, std::greater<>>;
 class OrderBook {
 public:
     /** @brief Constructs an empty book. */
-    OrderBook() = default;
+    explicit OrderBook(std::size_t pool_capacity) : pool_(pool_capacity) {};
 
     /**
      * @brief Submit a limit order: match against the opposite side, rest remainder on book.
@@ -100,7 +100,7 @@ private:
     BidBook bids_{};   ///< Bid price levels (best bid at @c begin()).
     AskBook asks_{};   ///< Ask price levels (best ask at @c begin()).
 
-    OrderPool pool_{100000};
+    OrderPool pool_;
 
     std::unordered_set<std::uint64_t> active_ids_{};         ///< Ids currently resting on book.
     std::unordered_set<std::uint64_t> pending_cancel_ids_{}; ///< Early cancel ids not yet seen on insert.
