@@ -1,15 +1,15 @@
 /**
- * @file bench_common.hpp
- * @brief Shared utilities for benchmark scenarios and the measurement runner.
- *
- * Header-only library providing:
- *   - PerfGroup: RAII wrapper around Linux perf_event_open for in-process
- *     hardware performance counter measurement.
- *   - EnsureCsvHeader(): idempotent CSV header writer.
- *   - Percentile(): linear-interpolation percentile (R-7, matches numpy default).
- *   - PrefillSellBook(): populate an OrderBook with resting sell orders at
- *     evenly spaced price levels.
- */
+	* @file bench_common.hpp
+	* @brief Shared utilities for benchmark scenarios and the measurement runner.
+	*
+	* Header-only library providing:
+	*   - PerfGroup: RAII wrapper around Linux perf_event_open for in-process
+	*     hardware performance counter measurement.
+	*   - EnsureCsvHeader(): idempotent CSV header writer.
+	*   - Percentile(): linear-interpolation percentile (R-7, matches numpy default).
+	*   - PrefillSellBook(): populate an OrderBook with resting sell orders at
+	*     evenly spaced price levels.
+	*/
 
 #pragma once
 
@@ -35,35 +35,35 @@
 namespace benchmark_runner {
 
 /**
- * @brief Minimal splitmix64 PRNG — ~2 ns/call, deterministic, seedable.
- *
- * Faster than std::mt19937 and friendlier to inlining.  Used inside
- * RunOp() to generate random order IDs/prices so that compilers and
- * branch predictors cannot lock onto a fixed constant across trials.
- */
+	* @brief Minimal splitmix64 PRNG — ~2 ns/call, deterministic, seedable.
+	*
+	* Faster than std::mt19937 and friendlier to inlining.  Used inside
+	* RunOp() to generate random order IDs/prices so that compilers and
+	* branch predictors cannot lock onto a fixed constant across trials.
+	*/
 struct SplitMix64 {
-  std::uint64_t state;
+	std::uint64_t state;
 
-  explicit SplitMix64(std::uint64_t seed) : state(seed) {}
+	explicit SplitMix64(std::uint64_t seed) : state(seed) {}
 
-  std::uint64_t next() {
-    state += 0x9e3779b97f4a7c15;
-    std::uint64_t z = state;
-    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9;
-    z = (z ^ (z >> 27)) * 0x94d049bb133111eb;
-    return z ^ (z >> 31);
-  }
+	std::uint64_t next() {
+	state += 0x9e3779b97f4a7c15;
+	std::uint64_t z = state;
+	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9;
+	z = (z ^ (z >> 27)) * 0x94d049bb133111eb;
+	return z ^ (z >> 31);
+	}
 };
 
 /**
- * @brief Thin wrapper around the perf_event_open syscall.
- * @param hw_event  Per-counter configuration.
- * @param pid       Target PID (0 = current thread).
- * @param cpu       CPU to monitor (-1 = any).
- * @param group_fd  Leader FD for event groups (-1 = standalone).
- * @param flags     perf_event_open flags (0 for default behaviour).
- * @return File descriptor on success, -1 on error (errno set).
- */
+	* @brief Thin wrapper around the perf_event_open syscall.
+	* @param hw_event  Per-counter configuration.
+	* @param pid       Target PID (0 = current thread).
+	* @param cpu       CPU to monitor (-1 = any).
+	* @param group_fd  Leader FD for event groups (-1 = standalone).
+	* @param flags     perf_event_open flags (0 for default behaviour).
+	* @return File descriptor on success, -1 on error (errno set).
+	*/
 inline int perf_event_open(struct perf_event_attr* hw_event, pid_t pid, int cpu,
 													 int group_fd, unsigned long flags) {
 	return static_cast<int>(
@@ -71,22 +71,22 @@ inline int perf_event_open(struct perf_event_attr* hw_event, pid_t pid, int cpu,
 }
 
 /**
- * @brief Manages a group of Linux perf_event hardware counters.
- *
- * Opens five counters as a single event group so they can be started,
- * stopped and read atomically via the leader FD. Counters run in
- * user-space only (exclude_kernel=1, exclude_hv=1) and measure the
- * current thread.
- *
- * Counter order (indices 0–4):
- *   0: CPU cycles
- *   1: Instructions retired
- *   2: Branch instructions
- *   3: Branch misses
- *   4: Cache misses
- */
+	* @brief Manages a group of Linux perf_event hardware counters.
+	*
+	* Opens five counters as a single event group so they can be started,
+	* stopped and read atomically via the leader FD. Counters run in
+	* user-space only (exclude_kernel=1, exclude_hv=1) and measure the
+	* current thread.
+	*
+	* Counter order (indices 0–4):
+	*   0: CPU cycles
+	*   1: Instructions retired
+	*   2: Branch instructions
+	*   3: Branch misses
+	*   4: Cache misses
+	*/
 class PerfGroup {
- public:
+	public:
 	/**
 	 * @brief Open all five counters as a single event group.
 	 * @return true if every counter was opened successfully.
@@ -159,7 +159,7 @@ class PerfGroup {
 	/** @brief Close all opened counter FDs. */
 	~PerfGroup() { CloseAll(); }
 
- private:
+	private:
 	/**
 	 * @brief Open a single counter and join it to the group.
 	 * @param type     PERF_TYPE_* constant (hardware, cache, etc.).
@@ -202,14 +202,14 @@ class PerfGroup {
 };
 
 /**
- * @brief Ensure a CSV file has a header row.
- *
- * Writes @p header to @p path only if the file does not exist or is empty.
- * Subsequent calls are no-ops — no duplicate headers are ever written.
- *
- * @param path   CSV file path.
- * @param header CSV header line (without trailing newline).
- */
+	* @brief Ensure a CSV file has a header row.
+	*
+	* Writes @p header to @p path only if the file does not exist or is empty.
+	* Subsequent calls are no-ops — no duplicate headers are ever written.
+	*
+	* @param path   CSV file path.
+	* @param header CSV header line (without trailing newline).
+	*/
 inline void EnsureCsvHeader(const std::string& path, const std::string& header) {
 	if (path.empty()) return;
 	std::error_code ec;
@@ -222,15 +222,15 @@ inline void EnsureCsvHeader(const std::string& path, const std::string& header) 
 }
 
 /**
- * @brief Compute the p-th percentile of a numeric vector.
- *
- * Uses linear interpolation between adjacent values (type R-7, same as
- * numpy's default).
- *
- * @param values  Sample vector (taken by value; will be sorted in-place).
- * @param p       Desired percentile in [0.0, 1.0].
- * @return Interpolated percentile value, or 0.0 if the input is empty.
- */
+	* @brief Compute the p-th percentile of a numeric vector.
+	*
+	* Uses linear interpolation between adjacent values (type R-7, same as
+	* numpy's default).
+	*
+	* @param values  Sample vector (taken by value; will be sorted in-place).
+	* @param p       Desired percentile in [0.0, 1.0].
+	* @return Interpolated percentile value, or 0.0 if the input is empty.
+	*/
 inline double Percentile(std::vector<double> values, double p) {
 	if (values.empty()) return 0.0;
 	std::sort(values.begin(), values.end());
@@ -242,16 +242,16 @@ inline double Percentile(std::vector<double> values, double p) {
 }
 
 /**
- * @brief Prefill an OrderBook with resting sell orders at increasing prices.
- *
- * Distributes @p orders across @p levels price points (1 tick apart, starting
- * at 1000) so the book has a controlled depth before the measured operation.
- *
- * @param book     Target OrderBook (modified in-place).
- * @param orders   Total number of orders to insert.
- * @param levels   Number of distinct price levels.
- * @param id_base  Starting order-ID offset.
- */
+	* @brief Prefill an OrderBook with resting sell orders at increasing prices.
+	*
+	* Distributes @p orders across @p levels price points (1 tick apart, starting
+	* at 1000) so the book has a controlled depth before the measured operation.
+	*
+	* @param book     Target OrderBook (modified in-place).
+	* @param orders   Total number of orders to insert.
+	* @param levels   Number of distinct price levels.
+	* @param id_base  Starting order-ID offset.
+	*/
 inline void PrefillSellBook(matching::OrderBook& book, std::uint64_t orders,
 														std::uint64_t levels, std::uint64_t id_base) {
 	const std::uint64_t per_level =

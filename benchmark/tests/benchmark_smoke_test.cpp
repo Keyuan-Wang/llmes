@@ -1,16 +1,16 @@
 /**
- * @file benchmark_smoke_test.cpp
- * @brief Lightweight correctness tests for the benchmark runner infrastructure.
- *
- * Validates:
- *   - EnsureCsvHeader(): writes header only when file is new or empty.
- *   - Percentile(): correct interpolation for p0/p50/p100 and empty input.
- *   - PrefillSellBook(): book is populated and orders can be swept.
- *   - RunScenario(): full latency run with a trivial scenario, CSV output
- *     format, and exit code.
- *
- * Does not require hardware PMC support or root privileges.
- */
+	* @file benchmark_smoke_test.cpp
+	* @brief Lightweight correctness tests for the benchmark runner infrastructure.
+	*
+	* Validates:
+	*   - EnsureCsvHeader(): writes header only when file is new or empty.
+	*   - Percentile(): correct interpolation for p0/p50/p100 and empty input.
+	*   - PrefillSellBook(): book is populated and orders can be swept.
+	*   - RunScenario(): full latency run with a trivial scenario, CSV output
+	*     format, and exit code.
+	*
+	* Does not require hardware PMC support or root privileges.
+	*/
 
 #include "benchmark_runner.hpp"
 #include "bench_common.hpp"
@@ -94,6 +94,7 @@ void test_run_scenario_latency() {
 	class SmokeScenario : public benchmark_runner::IBenchScenario {
 	 public:
 		const char* Name() const override { return "smoke"; }
+	std::uint64_t max_batch_size() const override { return benchmark_runner::IBenchScenario::kUnlimitedBatch; }
 		void Setup(const benchmark_runner::Args&, std::uint64_t) override {}
 		bool RunOp(const benchmark_runner::Args&, std::uint64_t, std::uint64_t,
 							 std::uint64_t& ok) override {

@@ -85,6 +85,7 @@ Args ParseArgs(int argc, char** argv) {
 
 int RunScenario(IBenchScenario& scenario, int argc, char** argv) {
 	const Args args = ParseArgs(argc, argv);
+	const std::uint64_t eff_batch = std::min(args.batch_size, scenario.max_batch_size());
 
 	std::uint64_t ok = 0;
 	std::uint64_t iter_counter = 0;
@@ -92,7 +93,7 @@ int RunScenario(IBenchScenario& scenario, int argc, char** argv) {
 	// --- warmup phase: execute full cycles without recording ---
 	for (std::uint64_t i = 0; i < args.warmup_iters; ++i) {
 		scenario.Setup(args, iter_counter);
-		for (std::uint64_t b = 0; b < args.batch_size; ++b) {
+		for (std::uint64_t b = 0; b < eff_batch; ++b) {
 			if (!scenario.RunOp(args, iter_counter, b, ok)) return 2;
 		}
 		scenario.Teardown();
@@ -123,7 +124,7 @@ int RunScenario(IBenchScenario& scenario, int argc, char** argv) {
 		}
 
 		const auto t0 = Clock::now();
-		for (std::uint64_t b = 0; b < args.batch_size; ++b) {
+		for (std::uint64_t b = 0; b < eff_batch; ++b) {
 			if (!scenario.RunOp(args, iter_counter, b, ok)) return 2;
 		}
 		const auto t1 = Clock::now();
@@ -140,14 +141,14 @@ int RunScenario(IBenchScenario& scenario, int argc, char** argv) {
 					static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 																			t1 - t0)
 																			.count());
-			latency_per_op_ns.push_back(ns / static_cast<double>(args.batch_size));
+			latency_per_op_ns.push_back(ns / static_cast<double>(eff_batch));
 		} else {
 			std::array<std::uint64_t, 5> vals{};
 			if (!perf.ReadValues(vals)) return 3;
 			for (std::size_t j = 0; j < totals.size(); ++j) {
 				totals[j] += vals[j];
 			}
-			measured_ops += args.batch_size;
+			measured_ops += eff_batch;
 		}
 	}
 
@@ -170,7 +171,7 @@ int RunScenario(IBenchScenario& scenario, int argc, char** argv) {
 							<< " trial_id=" << args.trial_id
 							<< " orders=" << args.orders
 							<< " levels=" << args.levels
-							<< " batch_size=" << args.batch_size
+							<< " batch_size=" << eff_batch
 							<< " warmup_iters=" << args.warmup_iters
 							<< " iters=" << args.iters
 							<< " avg_ns=" << avg
@@ -200,7 +201,7 @@ int RunScenario(IBenchScenario& scenario, int argc, char** argv) {
 				<< ","
 				<< args.levels
 				<< ","
-				<< args.batch_size
+				<< eff_batch
 				<< ","
 				<< args.warmup_iters
 				<< ","
@@ -242,7 +243,7 @@ int RunScenario(IBenchScenario& scenario, int argc, char** argv) {
 						<< " trial_id=" << args.trial_id
 						<< " orders=" << args.orders
 						<< " levels=" << args.levels
-						<< " batch_size=" << args.batch_size
+						<< " batch_size=" << eff_batch
 						<< " warmup_iters=" << args.warmup_iters
 						<< " iters=" << args.iters
 						<< " cycles_per_op=" << cycles
@@ -275,7 +276,7 @@ int RunScenario(IBenchScenario& scenario, int argc, char** argv) {
 			<< ","
 			<< args.levels
 			<< ","
-			<< args.batch_size
+			<< eff_batch
 			<< ","
 			<< args.warmup_iters
 			<< ","
