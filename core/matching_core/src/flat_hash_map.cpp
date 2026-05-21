@@ -62,7 +62,7 @@ void* matching::HashTable::find(std::uint64_t key) {
     // Probe until we hit an EMPTY slot (probe chain terminus).
     // TOMBSTONE slots are skipped: the key might be further down the chain.
     while (slots_[idx].state != State::EMPTY) {
-        if (slots_[idx].key == key)
+        if (slots_[idx].state == State::OCCUPIED && slots_[idx].key == key)
             return slots_[idx].value;
         idx = (idx + 1) & mask_;
     }
@@ -76,7 +76,11 @@ bool matching::HashTable::erase(std::uint64_t key) {
     // Same probe as find: walk past tombstones, stop at EMPTY.
     while (slots_[idx].state != State::EMPTY) {
         if (slots_[idx].key == key) {
+            
+            slots_[idx].key = 0;
+            slots_[idx].value = nullptr;
             slots_[idx].state = State::TOMBSTONE;
+            
             ++tombstones_;
             --size_;
             return true;
