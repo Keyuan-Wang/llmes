@@ -57,12 +57,14 @@ private:
     static std::size_t next_power_of_2(std::uint64_t v) {
         if (v <= 1) return 1;
         --v;
+        // Propagate the highest set bit down to all lower bits.
         v |= v >> 1;
         v |= v >> 2;
         v |= v >> 4;
         v |= v >> 8;
         v |= v >> 16;
         v |= v >> 32;
+        // v is now 2^n - 1; one more increment rounds up to 2^n.
         ++v;
         return static_cast<std::size_t>(v);
     }

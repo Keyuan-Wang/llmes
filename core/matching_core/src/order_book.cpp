@@ -17,13 +17,9 @@ namespace {
 
 /**
  * @brief Whether a limit order crosses the opposite side's best quote.
- *
- * @param taker_side            Side of the incoming limit order.
- * @param limit_price           Limit price of the taker.
- * @param best_opposite_price   Best price on the opposite book (lowest ask or highest bid).
- * @return True if at least one share can match at @p best_opposite_price.
  */
 bool can_cross_limit(Side taker_side, std::int64_t limit_price, std::int64_t best_opposite_price) {
+    // Buy crosses when limit_price >= best_ask; sell crosses when limit_price <= best_bid.
     if (taker_side == Side::Buy) {
         return limit_price >= best_opposite_price;
     }
@@ -32,32 +28,30 @@ bool can_cross_limit(Side taker_side, std::int64_t limit_price, std::int64_t bes
 
 }  // namespace
 
-/**
- * @copydoc OrderBook::cancel_order
- */
 ErrorCode OrderBook::cancel_order(std::uint64_t order_id) {
+    // Look up the order via the id-to-order hash table (O(1) expected).
     auto order_ptr = id_to_order_.find(order_id);
 
     if (order_ptr != nullptr) {
         Order* o = static_cast<Order*>(order_ptr);
 
+        // Remove from its price-level intrusive list.
         o->parent_level->erase(*o);
-        pool_.release(o);
+        pool_.release(o);                   // Return memory to the object pool.
         active_ids_.erase(order_id);
-        id_to_order_.erase(order_id);
+        id_to_order_.erase(order_id);       // Remove from hash table.
         return ErrorCode::Success;
     }
 
+    // Order not found: record as pending cancel so a subsequent insert
+    // with the same id is rejected (matching real-world exchange behaviour).
     pending_cancel_ids_.insert(order_id);
     return ErrorCode::UnknownOrderId;
 }
 
-/**
- * @copydoc OrderBook::modify_order
- */
 AddResult OrderBook::modify_order(std::uint64_t order_id, Side side, std::int64_t price,
                                   std::uint64_t quantity, std::uint64_t timestamp) {
-    // Remove existing order with this id if present (no side effects on pending_cancel_ids_).
+    // If the order already exists, remove it first (same logic as cancel_order).
     auto order_ptr = id_to_order_.find(order_id);
 
     if (order_ptr != nullptr) {
@@ -69,17 +63,13 @@ AddResult OrderBook::modify_order(std::uint64_t order_id, Side side, std::int64_
         id_to_order_.erase(order_id);
     }
 
-    // A prior cancel that landed in pending_cancel_ids_ is overridden by modify.
+    // A pending cancel for this id is also cleared — modify overrides it.
     pending_cancel_ids_.erase(order_id);
 
-    // Delegate to add_limit_order — both duplicate and pending-cancel checks
-    // will pass since we just cleaned up state for this id.
+    // Now delegate to add_limit_order with a clean state for this id.
     return add_limit_order(order_id, side, price, quantity, timestamp);
 }
 
-/**
- * @copydoc OrderBook::add_limit_order
- */
 AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int64_t price,
                                      std::uint64_t quantity, std::uint64_t timestamp) {
     AddResult out{};
@@ -109,13 +99,14 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
         while (remaining > 0 && !opposite_book.empty()) {
             const std::int64_t best_price = opposite_book.begin()->first;
             if (!can_cross_limit(side, price, best_price)) {
-                break;
+                break;  // Price no longer crosses — remainder will rest on the book.
             }
 
             auto level_it = opposite_book.begin();
 
-            auto& price_level = level_it->second;   // an intrusive list
+            auto& price_level = level_it->second;   // Intrusive list for this price.
 
+            // Fill against the best level until it is exhausted or the order is filled.
             while (remaining > 0 && !price_level.empty()) {
                 Order& maker = price_level.front();
 
@@ -128,6 +119,7 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
                 out.filled_quantity += fill;
 
                 if (maker.quantity == 0) {
+                    // Fully consumed: remove maker from book.
                     active_ids_.erase(maker.id);
                     id_to_order_.erase(maker.id);
 
@@ -136,7 +128,8 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
                     pool_.release(maker_ptr);
                 }
             }
-            
+
+            // Level is empty: remove the price point from the book.
             if (price_level.empty())
                 opposite_book.erase(level_it);
         }
@@ -155,10 +148,9 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
         return out;
     }
 
-    // add remaining limit order to book
+    // Add remaining quantity as a new resting order.
     Order* node = pool_.acquire();
-    // TODO: WHAT IF POOL IS ALREADY EMPTY?
-    assert(node != nullptr);
+    assert(node != nullptr);              // Pool capacity must be sized correctly upfront.
 
     *node = {order_id, price, remaining, timestamp};
     if (side == Side::Buy) {
@@ -173,14 +165,10 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
     active_ids_.insert(order_id);
     id_to_order_.insert(order_id, node);
 
-    // output
     out.code = ErrorCode::Success;
     return out;
 }
 
-/**
- * @copydoc OrderBook::add_market_order
- */
 AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::uint64_t quantity,
                                       std::uint64_t timestamp) {
     (void)timestamp;
@@ -207,10 +195,13 @@ AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::ui
 
     std::uint64_t remaining = quantity;
 
+    // Market order: sweep the entire opposite book until filled or exhausted.
+    // Unlike limit orders, there is no crossing check — market orders always
+    // take the best available price.
     auto match_against = [&](auto& opposite_book) {
         while (remaining > 0 && !opposite_book.empty()) {
             auto level_it = opposite_book.begin();
-            auto& price_level = level_it->second;   // an intrusive list
+            auto& price_level = level_it->second;
 
             while (remaining > 0 && !price_level.empty()) {
                 Order& maker = price_level.front();
@@ -251,6 +242,7 @@ AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::ui
         return out;
     }
 
+    // Market orders never post to the book: any remainder is discarded.
     out.code = ErrorCode::MarketRemainderCancelled;
     return out;
 }
