@@ -118,7 +118,7 @@ for ax, (label, mean_col, std_col) in zip(axes, metrics):
     bars = ax.bar(x, means, bar_width, yerr=stds, capsize=4,
                   color=colors, edgecolor="white", error_kw={"linewidth": 1.5})
     for bar, v, s in zip(bars, means, stds):
-        ax.text(bar.get_x() + bar.get_width() / 2, v + s,
+        ax.text(bar.get_x() + bar.get_width() / 2, v + s + v * 0.02,
                 fmt_val(v), ha="center", va="bottom", fontsize=9)
 
     ax.set_xticks(x)
