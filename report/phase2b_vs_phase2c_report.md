@@ -77,9 +77,19 @@ Frequent rehash is O(capacity) — copying every live entry. In a benchmark runn
 
 ## Optimization Roadmap
 
-### Phase 2d: Backward Shift Deletion
+### Phase 2d: Robin Hood Hashing + Backward Shift Deletion
 
-Eliminate tombstones by shifting entries backward on erase:
+Replace the current linear-probe-with-tombstones with the algorithm recommended by **"Optimizing Open Addressing"** (thenumbat), which opens with the claim:
+
+> *"Your default hash table should be open-addressed, using Robin Hood linear probing with backward-shift deletion."*
+>
+> — [Optimizing Open Addressing](https://thenumb.at/Hashtables/)
+
+Two complementary changes:
+
+**Robin Hood insertion** — When inserting, track each entry's probe distance (how far it is from its ideal slot). If the currently-inserting key has probed farther than the entry in the slot, swap them. This bounds the maximum probe distance — "rich" (close-to-ideal) entries yield to "poor" (far-from-ideal) ones.
+
+**Backward shift deletion** — When erasing, instead of placing a tombstone, shift subsequent displaced entries backward to fill the gap:
 
 ```
 Before (tombstone):  [A] [T] [C] [D] [E] [EMPTY]
@@ -89,11 +99,11 @@ After (shift):       [A] [C] [D] [E] [EMPTY] [EMPTY]
                      find(X) probes 4 slots to reach EMPTY
 ```
 
-When erasing, instead of placing a tombstone, shift subsequent displaced entries backward to fill the gap. This keeps the probe chain dense and eliminates the tombstone-induced probe overhead entirely.
+The two operations work together: Robin Hood keeps probe distances balanced and short; backward shift deletion eliminates tombstones without disturbing the probe-distance distribution. Without shift deletion, Robin Hood's probe bounds would still be eroded by tombstone accumulation.
 
-**Trade-off**: erase becomes O(probe-chain-length) instead of O(1), but at α < 0.6 the average chain is short (~2–3 slots). The benefit is that all find() operations (successful and failed) consistently terminate at the first EMPTY slot.
+**Trade-off**: erase becomes O(probe-chain-length) instead of O(1), but at α < 0.6 the average chain is short (~2–3 slots). Insert gains a swap check per probe which adds ~2 instructions per probe step.
 
-**Expected impact**: Recover the cxl_hit and cxl_miss regression; further improve lmt_rest and crossing scenarios since no rehash is needed to reclaim tombstones.
+**Expected impact**: Recover the cxl_hit and cxl_miss regression where tombstone chains degraded lookup; overall throughput should stabilise at or slightly above Phase 2b.
 
 ### Phase 2e: Swiss Table 16-Way SIMD Probing
 
@@ -101,8 +111,8 @@ Replace linear probing with 16-way SIMD group lookup (SSE2 `_mm_loadu_si128` / `
 
 - Each slot stores a 1-byte H2 hash control word (7 bits of hash + 1 sentinel bit)
 - Probe 16 slots in a single SIMD instruction
-- Combine with backward shift deletion for a complete tombstone-free design
-- Google Abseil's `flat_hash_map` uses this exact approach
+- Combine with Robin Hood + backward shift deletion for a complete high-performance design
+- Google Abseil's `flat_hash_map` uses this exact approach (also cited in the same article)
 
 **Expected impact**: Reducing probe cost from N sequential lookups to N/16 SIMD batches. This directly benefits micro-benchmarks like dup_reject and cxl_hit where find() is the dominant operation.
 
@@ -112,5 +122,5 @@ Replace linear probing with 16-way SIMD group lookup (SSE2 `_mm_loadu_si128` / `
 |---|---|---|---|
 | 2b | `std::unordered_map` + O(1) cancel | baseline | Done |
 | 2c | Open-addressing flat hash table | cache locality | Done |
-| 2d | Backward shift deletion | tombstone-free erase | Planned |
+| 2d | Robin Hood + backward shift deletion | balanced probes, no tombstone | Planned |
 | 2e | Swiss Table SIMD probing | constant-time find | Planned |
