@@ -105,16 +105,17 @@ The two operations work together: Robin Hood keeps probe distances balanced and 
 
 **Expected impact**: Recover the cxl_hit and cxl_miss regression where tombstone chains degraded lookup; overall throughput should stabilise at or slightly above Phase 2b.
 
-### Phase 2e: Swiss Table 16-Way SIMD Probing
+### Phase 2e: Swiss Table with absl::flat_hash_map
 
-Replace linear probing with 16-way SIMD group lookup (SSE2 `_mm_loadu_si128` / `_mm_shuffle_epi8`):
+Replace the custom Robin Hood hash table with Google Abseil's production-grade `absl::flat_hash_map`:
 
-- Each slot stores a 1-byte H2 hash control word (7 bits of hash + 1 sentinel bit)
-- Probe 16 slots in a single SIMD instruction
-- Combine with Robin Hood + backward shift deletion for a complete high-performance design
-- Google Abseil's `flat_hash_map` uses this exact approach (also cited in the same article)
+- Abseil's implementation uses the Swiss Table algorithm (16-way SIMD group lookup)
+- Fully validated, SIMD-optimized, and memory-managed by Google's infrastructure team
+- Drop-in replacement for `std::unordered_map` with a compatible API
 
-**Expected impact**: Reducing probe cost from N sequential lookups to N/16 SIMD batches. This directly benefits micro-benchmarks like dup_reject and cxl_hit where find() is the dominant operation.
+**No need to hand-roll Swiss Table SIMD** — the value of this phase is not in the implementation but in the **benchmark comparison**: how does a hand-tuned Robin Hood table (Phase 2d) compare against a production SIMD-accelerated table (Phase 2e) in the matching-engine workload?
+
+This closes the optimization loop: from `std::unordered_map` (Phase 2b) → custom open-addressing (Phase 2c) → custom Robin Hood + shift-delete (Phase 2d) → production flat_hash_map (Phase 2e), measuring the gap between a well-implemented academic algorithm and an engineered library.
 
 ### Summary
 
@@ -123,4 +124,4 @@ Replace linear probing with 16-way SIMD group lookup (SSE2 `_mm_loadu_si128` / `
 | 2b | `std::unordered_map` + O(1) cancel | baseline | Done |
 | 2c | Open-addressing flat hash table | cache locality | Done |
 | 2d | Robin Hood + backward shift deletion | balanced probes, no tombstone | Planned |
-| 2e | Swiss Table SIMD probing | constant-time find | Planned |
+| 2e | absl::flat_hash_map | production SIMD hash table | Planned |
