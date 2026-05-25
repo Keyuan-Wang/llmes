@@ -154,13 +154,16 @@ if [[ "$INSTALL_DEPS" == "1" ]]; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
   apt-get install -y --no-install-recommends \
-    git ca-certificates build-essential cmake python3 python3-venv python3-pip libabsl-dev
+    git ca-certificates build-essential cmake python3 python3-venv python3-pip
 fi
 
-# Restore system absl from .bak if it was previously renamed (Debian compat fix)
-if [[ -d "/usr/lib/x86_64-linux-gnu/cmake/absl.bak" && ! -d "/usr/lib/x86_64-linux-gnu/cmake/absl" ]]; then
-  mv /usr/lib/x86_64-linux-gnu/cmake/absl.bak /usr/lib/x86_64-linux-gnu/cmake/absl
-  echo "  restored system absl from .bak"
+# Hide system absl so all branches fall through to FetchContent.
+# Debian's libabsl-dev uses a custom absl::debian9 namespace that causes
+# linker errors for new template instantiations (e.g. bench_hft_macro's
+# flat_hash_map<int64_t, uint64_t>).
+if [[ -d "/usr/lib/x86_64-linux-gnu/cmake/absl" ]]; then
+  mv /usr/lib/x86_64-linux-gnu/cmake/absl /usr/lib/x86_64-linux-gnu/cmake/absl.bak
+  echo "  hid system absl -> absl.bak"
 fi
 
 # ---- 2. Clone / fetch repo ----
@@ -205,31 +208,6 @@ for ((idx=0; idx<N; idx++)); do
   sha="$(git rev-parse --short HEAD)"
   COMMIT_SHAS+=("$sha")
   echo "  commit = $sha"
-
-  # Override CMakeLists.txt: force FetchContent with latest abseil tag.
-  # Old branches have GIT_TAG 20240722.0 which has linker issues on Debian.
-  cat > "$REMOTE_REPO_DIR/core/matching_core/CMakeLists.txt" << 'CMAKE_EOF'
-add_library(matching_core
-  src/order_book.cpp
-  src/order_pool.cpp
-)
-target_include_directories(matching_core
-  PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-include(FetchContent)
-FetchContent_Declare(abseil
-  GIT_REPOSITORY https://github.com/abseil/abseil-cpp.git
-  GIT_TAG 20260107.1
-)
-set(ABSL_PROPAGATE_CXX_STD ON)
-FetchContent_MakeAvailable(abseil)
-target_link_libraries(matching_core PUBLIC absl::flat_hash_map)
-if(LLMES_BUILD_TESTS)
-  add_executable(matching_core_tests tests/order_book_test.cpp)
-  target_link_libraries(matching_core_tests PRIVATE matching_core)
-  add_test(NAME matching_core_tests COMMAND matching_core_tests)
-endif()
-CMAKE_EOF
 
   # Rebuild — previous version's build dir may be incompatible
   rm -rf build
