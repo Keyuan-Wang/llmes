@@ -17,7 +17,7 @@ set -euo pipefail
 #
 # Each pair is  commit_or_tag_or_branch  :  human_readable_version_tag
 #
-# Defaults to phase1-finale vs master if VERSIONS is unset.
+# Defaults to phase2b..phase2e if VERSIONS is unset.
 
 # --- remote connection ---
 SERVER_IP="${SERVER_IP:-}"
@@ -29,7 +29,8 @@ SSH_PORT="${SSH_PORT:-22}"
 REPO_URL="${REPO_URL:-}"
 
 # --- versions: comma-separated  commit:label  pairs ---
-VERSIONS="${VERSIONS:-phase1-finale:phase1-baseline,master:phase2a}"
+# Each pair is  branch_or_commit:version_tag
+VERSIONS="${VERSIONS:-phase2b:phase2b,phase2c:phase2c,phase2d:phase2d,phase2e:phase2e}"
 
 # --- remote paths ---
 REMOTE_ROOT="${REMOTE_ROOT:-/root/llmes-bench}"
@@ -41,13 +42,13 @@ REMOTE_TARBALL="${REMOTE_TARBALL:-$REMOTE_ROOT/bench_compare_artifacts.tgz}"
 LOCAL_OUT_DIR="${LOCAL_OUT_DIR:-./server_results}"
 
 # --- benchmark campaign params (applied to every version) ---
-SCENARIOS="${SCENARIOS:-lmt_rest,lmt_cross_shallow,lmt_cross_deep,mkt_sweep_deep,cxl_hit,cxl_miss,dup_reject}"
+SCENARIOS="${SCENARIOS:-hft_add_near,hft_add_far,hft_cancel_hot,hft_cancel_cold,hft_modify_near,hft_cxl_miss,hft_market_small,hft_market_large}"
 METRICS="${METRICS:-latency,pmc}"
 ORDERS="${ORDERS:-100,500,1000,5000,10000,50000,100000}"
 LEVELS="${LEVELS:-10,100,1000}"
 BATCH_SIZES="${BATCH_SIZES:-64}"
-TRIALS="${TRIALS:-3}"
-ITERS="${ITERS:-100}"
+TRIALS="${TRIALS:-10}"
+ITERS="${ITERS:-1000}"
 WARMUP_ITERS="${WARMUP_ITERS:-100}"
 SEED="${SEED:-42}"
 
@@ -153,7 +154,7 @@ if [[ "$INSTALL_DEPS" == "1" ]]; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
   apt-get install -y --no-install-recommends \
-    git ca-certificates build-essential cmake python3 python3-venv python3-pip libabsl-dev
+    git ca-certificates build-essential cmake python3 python3-venv python3-pip
 fi
 
 # ---- 2. Clone / fetch repo ----
@@ -199,6 +200,30 @@ for ((idx=0; idx<N; idx++)); do
   COMMIT_SHAS+=("$sha")
   echo "  commit = $sha"
 
+  # Fix CMakeLists.txt: force FetchContent for abseil (Debian system absl is broken)
+  cat > "$REMOTE_REPO_DIR/core/matching_core/CMakeLists.txt" << 'CMAKE_EOF'
+add_library(matching_core
+  src/order_book.cpp
+  src/order_pool.cpp
+)
+target_include_directories(matching_core
+  PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+include(FetchContent)
+FetchContent_Declare(abseil
+  GIT_REPOSITORY https://github.com/abseil/abseil-cpp.git
+  GIT_TAG 20240722.0
+)
+set(ABSL_PROPAGATE_CXX_STD ON)
+FetchContent_MakeAvailable(abseil)
+target_link_libraries(matching_core PUBLIC absl::flat_hash_map)
+if(LLMES_BUILD_TESTS)
+  add_executable(matching_core_tests tests/order_book_test.cpp)
+  target_link_libraries(matching_core_tests PRIVATE matching_core)
+  add_test(NAME matching_core_tests COMMAND matching_core_tests)
+endif()
+CMAKE_EOF
+
   # Rebuild — previous version's build dir may be incompatible
   rm -rf build
   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DLLMES_BUILD_BENCHMARKS=ON
@@ -216,6 +241,13 @@ for ((idx=0; idx<N; idx++)); do
 
   LAT_FILES+=("$RES_DIR/${prefix}_latency_raw_trials.csv")
   PMC_FILES+=("$RES_DIR/${prefix}_pmc_raw_trials.csv")
+
+  # ---- HFT macro benchmark (separate params) ----
+  echo "--- HFT macro benchmark ($tag) ---"
+  OUT_PREFIX="macro_${prefix}" TRIALS="$TRIALS" SCENARIOS="hft_macro" \
+    ORDERS=100000 LEVELS=100 BATCH_SIZES=100000 ITERS=1 WARMUP_ITERS=1 \
+    VERSION_TAG="$tag" COMMIT_SHA="$sha" \
+    bash benchmark/scripts/run_benchmarks.sh 2>&1 | tee "$REMOTE_ARTIFACTS_DIR/run_macro_${prefix}.log"
 done
 
 # ---- 5. Merge all versions ----
