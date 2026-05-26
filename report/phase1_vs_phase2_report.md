@@ -3,7 +3,7 @@
 ## Test Configuration
 
 - **Versions**: phase1 (commit `7679810`) vs phase2a (commit `de11d3c`) vs phase2b (commit `8ce4dcf`, same as `master`)
-- **Server**: Hetzner CX42 (8 vCPU, 16 GB RAM)
+- **Server**: Hetzner CCX23 (8 vCPU, 16 GB RAM)
 - **Benchmark (per-op latency)**: 7 scenarios × 7 order sizes × 3 price levels × 2 metrics × 3 trials
 - **Benchmark (overall throughput)**: Mixed workload (35% cancel, 30% modify, 25% limit rest, 5% limit cross, 5% market) × 5 trials
 
