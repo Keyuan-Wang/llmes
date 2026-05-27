@@ -14,7 +14,7 @@ private:
 public:
     explicit OrderPool(std::size_t capacity);
 
-    Order*  acquire();          // Get an empty slot from the top of stack, if return nullptr, the pool is full
+    [[nodiscard]] Order*  acquire();          // Get an empty slot from the top of stack, if return nullptr, the pool is full
     void    release(Order* o);    // return a freed slot back to top of stack
 
     [[nodiscard]] std::size_t capacity() const noexcept;
