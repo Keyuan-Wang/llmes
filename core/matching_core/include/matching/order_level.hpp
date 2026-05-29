@@ -1,45 +1,18 @@
 #pragma once
 
-#include <array>
-
 #include "matching/types.hpp"
+#include "matching/order_chunk_pool.hpp"
 
 
 namespace matching {
-
-class OrderChunkPool {
-public:
-    static constexpr std::size_t kChunkSize = 256;
-
-    struct Chunk {
-        std::array<Order, kChunkSize> orders;
-        Chunk* next = nullptr;
-    };
-
-    explicit OrderChunkPool(std::size_t order_capacity);
-
-    // get new free chunk 
-    Chunk* acquire() noexcept;
-    // release chunk list hold by a price level
-    void release_chain(Chunk* head) noexcept;
-    
-    // delete all copt constructors to prevent memory leak
-    OrderChunkPool(const OrderChunkPool&) = delete;
-    OrderChunkPool& operator=(const OrderChunkPool&) = delete;
-
-private:
-    std::vector<Chunk> chunks_;
-    Chunk* free_head_ = nullptr;
-};
-
 
 
 class OrderLevel {
 private:
     OrderChunkPool* chunk_pool_ = nullptr;
-    OrderChunkPool::Chunk* chunks_ = nullptr;
+    OrderChunkPool::Chunk* chunk_head_ = nullptr;
     
-    Order* free_head_ = nullptr;
+    Order* free_order_head_ = nullptr;
     Order* head_ = nullptr;
     Order* tail_ = nullptr;
     std::size_t size_ = 0;
@@ -54,11 +27,13 @@ public:
     explicit OrderLevel(OrderChunkPool* chunk_pool);
     // must explicityly specify the capacty of order level
     OrderLevel() = delete;
+    // Note we must explicitly release order chunk pool
+    ~OrderLevel();
 
-    // Move constructor
-    OrderLevel(OrderLevel&& other) noexcept;
-    // Move operator
-    OrderLevel& operator=(OrderLevel&& other) noexcept;
+    // Move constructors are deleted, since once moved,
+    // the parentlevel pointer in Order will be invalidated
+    OrderLevel(OrderLevel&& other) = delete;
+    OrderLevel& operator=(OrderLevel&& other) = delete;
 
     // Prevent copy constructor (two pointers pointing to the same order pool)
     OrderLevel(const OrderLevel&) = delete;
@@ -66,11 +41,11 @@ public:
 
 
 
-    [[nodiscard]] Order* allocate();          // Get an empty slot from the top of stack, if return nullptr, the pool is full
+    [[nodiscard]] Order* allocate() noexcept;   // Get an empty slot from the top of stack, if return nullptr, the pool is full
 
-    void push_back(Order& o);
+    void push_back(Order& o) noexcept;
 
-    void remove(Order& o);
+    void remove(Order& o) noexcept;
 
     [[nodiscard]] bool empty() const { return head_ == nullptr; }
 
@@ -82,4 +57,4 @@ public:
     Order* begin() { return head_; };
 };
 
-}
+}   // namespace matching

@@ -1,61 +1,46 @@
 #include "matching/order_level.hpp"
+#include "matching/order_chunk_pool.hpp"
 
 #include <cassert>
-#include <vector>
 
 
 namespace matching {
 
-OrderLevel::OrderLevel(OrderChunkPool* chunk_pool) : chunk_pool_(chunk_pool) {
-    for (auto& chunk : *chunk_pool_) {
-        o.next = free_head_;
-        free_head_ = &o;
-    }
+
+OrderLevel::OrderLevel(OrderChunkPool* chunk_pool)
+    : chunk_pool_(chunk_pool) {
+    assert(chunk_pool_ != nullptr);
 }
 
-OrderLevel::OrderLevel(OrderLevel&& other) noexcept
-    : pool_(std::move(other.pool_))
-    , free_head_(other.free_head_)
-    , head_(other.head_)
-    , tail_(other.tail_)
-    , size_(other.size_)
-{
-    other.free_head_ = nullptr;
-    other.head_ = nullptr;
-    other.tail_ = nullptr;
-    other.size_ = 0;
+
+OrderLevel::~OrderLevel() {
+    release_chunks();
 }
 
-OrderLevel& OrderLevel::operator=(OrderLevel&& other) noexcept {
-    if (this != &other) {
-        pool_ = std::move(other.pool_);
-        free_head_ = other.free_head_;
-        head_ = other.head_;
-        tail_ = other.tail_;
-        size_ = other.size_;
 
-        other.free_head_ = nullptr;
-        other.head_ = nullptr;
-        other.tail_ = nullptr;
-        other.size_ = 0;
+[[nodiscard]] Order* OrderLevel::allocate() noexcept {
+    if (free_order_head_ == nullptr) {
+        OrderChunkPool::Chunk* chunk = chunk_pool_->acquire();
+        if (chunk == nullptr)   // chunk pool is full
+            return nullptr;
+        
+        attach_chunk(chunk);
     }
 
-    return *this;
+    Order* node = free_order_head_;
+    free_order_head_ = node->next;
+
+    node->prev = nullptr;
+    node->next = nullptr;
+    node->parent_level = this;
+
+    return node;
 }
 
-[[nodiscard]] Order* OrderLevel::allocate() {
-    if (!free_head_)    return nullptr;
 
-    Order* result = free_head_;
-    free_head_ = result->next;
+void OrderLevel::push_back(Order& o) noexcept {
+    assert(o->parent_level == this);
 
-    result->prev = nullptr;
-    result->next = nullptr;
-
-    return result;
-}
-
-void OrderLevel::push_back(Order& o) {
     o.prev = tail_;
     o.next = nullptr;
 
@@ -66,28 +51,39 @@ void OrderLevel::push_back(Order& o) {
     ++size_;
 }
 
-void OrderLevel::remove(Order& o) {
+void OrderLevel::remove(Order& o) noexcept {
+    assert(o->parent_level == this);
+    assert(size_ > 0);
     // remove o from intrusive list
     if (o.prev) o.prev->next = o.next;
     else        head_ = o.next;
     if (o.next) o.next->prev = o.prev;
     else        tail_ = o.prev;
     
-    o.prev = o.next = nullptr;
+    o.prev = nullptr;
     --size_;
 
     // remove o from memory pool
-    o.next = free_head_;
-    free_head_ = &o;
+    o.next = free_order_head_;
+    o.parent_level = this;
+    free_order_head_ = &o;
 }
 
-void OrderLevel::clear() {
-    assert(size_ == 0);
-    pool_.clear();
-    free_head_ = nullptr;
+void OrderLevel::attach_chunk(OrderChunkPool::Chunk* chunk) noexcept {
+    assert(chunk != nullptr);
+
+    chunk->next = chunk_head_;
+    chunk_head_ = chunk;
+
+    free_order_head_ = &chunk->orders[0];
+}
+
+void OrderLevel::release_chunks() noexcept {
+    chunk_pool_->release_chain(chunk_head_);
+
     head_ = nullptr;
     tail_ = nullptr;
     size_ = 0;
 }
 
-}
+}   // namespace matching

@@ -86,7 +86,7 @@ class OrderBook {
 public:
     /** @brief Constructs an empty book. */
     explicit OrderBook(std::size_t pool_capacity = 100000)
-        : chunk_pool_(pool_capacity / OrderChunkPool::kChunkSize + 1)
+        : chunk_pool_(pool_capacity)
         , bids_(&chunk_pool_)
         , asks_(&chunk_pool_) {};
 
