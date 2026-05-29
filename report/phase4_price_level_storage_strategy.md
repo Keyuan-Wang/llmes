@@ -117,8 +117,9 @@ The correct Phase 4 workflow is:
 2. Refactor the price-book interface without changing behavior.
 3. Reject container swaps that break pointer stability or hot-path O(1)
    cancel semantics.
-4. Add telemetry to quantify actual price locality and drift.
-5. Add a hot contiguous structure only after the baseline data justifies it.
+4. Skip telemetry for the synthetic macro workload; the hot zone is a design
+   input, not something that must be inferred from generated events.
+5. Add a small hot window around the best price.
 6. Benchmark every version with the same matrix and record the result.
 
 This avoids a common performance-engineering failure mode: implementing several
@@ -227,42 +228,36 @@ Decision gate:
 - Keep `std::map` for the baseline ordered container.
 - Do not use `absl::btree_map` for live price levels while `Order` stores
   `parent_level*`.
-- Move next to telemetry and hot-ring design instead of pursuing btree-map
-  replacement.
+- Move directly to hot-window design instead of pursuing btree-map replacement.
 
-### V3: Add Price-Locality Telemetry
+### V3: Skip Price-Locality Telemetry
 
-**Goal**: measure the actual distribution needed to size the hot structure.
+**Goal**: avoid adding instrumentation that does not change the design
+decision.
 
-This version should not change matching behavior. It should report:
+The macro benchmark is a synthetic workload controlled by the project's
+Zero-Intelligence generator. Its near-best behavior is not external data that
+must be discovered at runtime. It is encoded by the benchmark's own price
+generation and cancel-target selection rules.
 
-| Metric | Purpose |
-|---|---|
-| min/max order price seen | Validate total price drift |
-| min/max best ask and best bid | Measure inside-price drift |
-| distance from best histogram | Choose hot window size |
-| hot-zone hit rate for N in {32,64,128,256,512,1024} | Estimate value of hot ring |
-| cold promotion/eviction count | Estimate churn |
+For Phase 4, define the hot area from the HFT business assumption:
 
-Suggested debug-only counters:
-
-```cpp
-struct PriceTelemetry {
-    std::int64_t min_price = std::numeric_limits<std::int64_t>::max();
-    std::int64_t max_price = std::numeric_limits<std::int64_t>::min();
-    std::int64_t min_best_ask = std::numeric_limits<std::int64_t>::max();
-    std::int64_t max_best_ask = std::numeric_limits<std::int64_t>::min();
-    std::array<std::uint64_t, 1025> distance_hist{};
-};
+```text
+core hot area: best price +/- 5 ticks
+implementation window: best price +/- 8 ticks
 ```
+
+The extra 3 ticks give a small buffer around the business-relevant region while
+keeping the hot structure cache-friendly. Full price-range telemetry would mix
+intentional cold orders, modify outliers, and far levels into one distribution;
+that does not directly answer how large the hot ring should be.
 
 Decision gate:
 
-- Choose `HotSize` from measured hit rate, not intuition.
-- Do not introduce a hot ring unless the data shows a strong near-best
-  concentration under `hft_macro`.
+- Do not implement standalone telemetry before the first hot-window version.
+- Proceed directly to the hot ring/vector prototype with a `+/- 8` tick window.
 
-### V4: Hot Ring + Ordered Cold Map
+### V4: Hot Window + Ordered Cold Map
 
 **Goal**: first real price-level data-structure change.
 
@@ -272,16 +267,16 @@ Keep correctness simple:
 - Cold path: ordered map for all other prices. Keep `std::map` as the first
   implementation because it provides stable node addresses.
 
-Recommended invariant:
+Recommended first-version invariant:
 
 ```text
-ask hot window: [best_ask, best_ask + HotSize)
-bid hot window: (best_bid - HotSize, best_bid]
+ask hot window: [best_ask - 8, best_ask + 8]
+bid hot window: [best_bid - 8, best_bid + 8]
 ```
 
-This is single-sided in the depth direction. A symmetric `best +/- N` window is
-less precise for an order book because asks only need increasing depth from the
-best ask and bids only need decreasing depth from the best bid.
+This symmetric window is deliberately small. It captures the HFT-relevant
+near-best area (`+/- 5` ticks) while leaving enough slack for price movement and
+simple indexing.
 
 Important correctness rule:
 
@@ -338,8 +333,8 @@ Candidates:
 | `absl::flat_hash_map + btree_set` | O(1) avg | O(1) via set begin | medium |
 | `absl::flat_hash_map + heap` | O(1) avg | amortized O(log C) | medium-high |
 
-Do not start here. Cold-path container experiments are only useful if telemetry
-and V4/V5 benchmark data show cold activity is material.
+Do not start here. Cold-path container experiments are only useful if V4/V5
+benchmark data show cold activity is material.
 
 ---
 
@@ -451,7 +446,7 @@ V1: introduce SideBook backed by std::map
 
 These two versions create a stable foundation for later container experiments.
 After V1 is benchmark-neutral, skip `absl::btree_map` for live price levels and
-move to telemetry before hot-ring work.
+move directly to hot-window work.
 
 The expected final architecture, if benchmarks justify it, is:
 
@@ -459,7 +454,7 @@ The expected final architecture, if benchmarks justify it, is:
 Hot ring/vector for near-best price levels
 Ordered cold map for arbitrary out-of-window prices
 Bitmap for hot best discovery
-Optional cold hash index only if cold-path telemetry justifies it
+Optional cold hash index only if later benchmark data justifies it
 ```
 
 This keeps the project disciplined: correctness first, measurable changes
