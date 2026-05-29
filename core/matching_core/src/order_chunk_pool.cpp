@@ -2,6 +2,7 @@
 #include "matching/types.hpp"
 
 #include <cassert>
+#include <memory>
 
 
 namespace matching {
@@ -16,19 +17,17 @@ inline std::size_t chunk_count_for (std::size_t order_capacity) noexcept {
 }   // namespace
 
 OrderChunkPool::OrderChunkPool(std::size_t order_capacity)
-    : chunks_(chunk_count_for(order_capacity)) {
-    for (auto& chunk : chunks_) {
-        chunk.next = free_chunk_head_;
+    : chunk_count_(chunk_count_for(order_capacity))
+    , chunks_(std::make_unique<Chunk[]>(chunk_count_)) {
+
+    for (std::size_t i = 0; i < chunk_count_; ++i) {
+        Chunk& chunk = chunks_[i];
+        
+        for (std::uint16_t j = 0; j < kChunkSize; ++j)
+            chunk.free_stack[j] = j;
+    
+        chunk.next_pool = free_chunk_head_;
         free_chunk_head_ = &chunk;
-
-        chunk.orders[0].next = &chunk.orders[1];
-        for (std::size_t i = 1; i < kChunkSize - 1; ++i) {
-            Order& o = chunk.orders[i];
-
-            o.prev = &chunk.orders[i-1];
-            o.next = &chunk.orders[i+1];
-        }
-        chunk.orders[kChunkSize - 1].prev = &chunk.orders[kChunkSize - 2];
     }
 }
 
