@@ -3,6 +3,8 @@ cmake-build-*/
 .venv/
 .cache/
 .claude/
+.codex/
+.agents/
 __pycache__/
 /benchmark/results/
 /server_results/

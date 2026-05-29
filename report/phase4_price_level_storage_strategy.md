@@ -115,7 +115,8 @@ The correct Phase 4 workflow is:
 
 1. Establish a clean `std::map` baseline.
 2. Refactor the price-book interface without changing behavior.
-3. Replace the ordered container with a cache-friendlier ordered container.
+3. Reject container swaps that break pointer stability or hot-path O(1)
+   cancel semantics.
 4. Add telemetry to quantify actual price locality and drift.
 5. Add a hot contiguous structure only after the baseline data justifies it.
 6. Benchmark every version with the same matrix and record the result.
@@ -183,37 +184,51 @@ Decision gate:
 
 - Continue only if V1 is functionally identical and benchmark-neutral.
 
-### V2: Replace `std::map` With `absl::btree_map`
+### V2: Do Not Use `absl::btree_map` for Live Price Levels
 
-**Goal**: test a low-risk ordered-container replacement.
+**Goal**: document why `absl::btree_map` is not a suitable replacement for the
+current live price-level container.
 
-`absl::btree_map` preserves the key property needed by matching:
+`absl::btree_map` looks attractive because it preserves the ordered-book
+property:
 
 ```cpp
 best price == levels_.begin()->first
 ```
 
-but stores keys and values in cache-friendlier B-tree nodes than `std::map`.
+However, Abseil explicitly does not provide pointer stability for btree
+containers. The current engine stores a pointer from each resting order to its
+parent price level:
 
-Expected wins:
+```cpp
+Order::parent_level -> PriceLevel*
+```
 
-- Lower pointer-chasing cost.
-- Better cache behavior for market sweeps and best-level churn.
-- Lower memory overhead per price level.
+That pointer is safe with `std::map` because map nodes are stable. It is not
+safe with `absl::btree_map`, where insert/erase/rebalancing may move values.
+Under `hft_macro`, this can turn `parent_level` into a dangling pointer and
+cause crashes.
 
-Risks:
+One possible workaround is to remove `parent_level` and locate the level during
+cancel via `(side, price)`:
 
-- Moving `PriceLevel` values must be safe. Intrusive lists are movable, but
-  order nodes must not rely on stable addresses of the container's value.
-- If `Order` stores `parent_level*`, verify that no container operation moves
-  a live `PriceLevel` after orders have been inserted. The safer long-term
-  direction is to remove `parent_level*` and locate the level by
-  `(side, price)` during cancel.
+```cpp
+id_to_order_[id] -> Order*
+SideBook::find(order.price) -> PriceLevel*
+```
+
+That preserves correctness but changes hot cancel/modify from pointer-based
+O(1) list erase to a price-container lookup. With `btree_map`, this is O(log P)
+and directly affects the hot path. That trade-off is not acceptable for the
+current performance goal.
 
 Decision gate:
 
-- If V2 improves or is neutral, keep it as the ordered cold-path baseline.
-- If V2 regresses, keep V1 and move to telemetry before adding hot structures.
+- Keep `std::map` for the baseline ordered container.
+- Do not use `absl::btree_map` for live price levels while `Order` stores
+  `parent_level*`.
+- Move next to telemetry and hot-ring design instead of pursuing btree-map
+  replacement.
 
 ### V3: Add Price-Locality Telemetry
 
@@ -254,7 +269,8 @@ Decision gate:
 Keep correctness simple:
 
 - Hot path: fixed-size ring or vector window near the current best.
-- Cold path: ordered map (`std::map` or `absl::btree_map`) for all other prices.
+- Cold path: ordered map for all other prices. Keep `std::map` as the first
+  implementation because it provides stable node addresses.
 
 Recommended invariant:
 
@@ -319,7 +335,6 @@ Candidates:
 | Design | Exact price lookup | Cold best lookup | Complexity |
 |---|---:|---:|---|
 | `std::map` | O(log C) | O(1) via `begin()` | low |
-| `absl::btree_map` | O(log C) | O(1) via `begin()` | low-medium |
 | `absl::flat_hash_map + btree_set` | O(1) avg | O(1) via set begin | medium |
 | `absl::flat_hash_map + heap` | O(1) avg | amortized O(log C) | medium-high |
 
@@ -392,23 +407,22 @@ The following invariants must hold for every Phase 4 version:
 6. Arbitrary integer prices are representable.
 7. The macro benchmark must not require clamping or rejecting valid prices.
 
-Recommended long-term cleanup:
+Hot-path pointer invariant:
 
 ```text
-Remove Order::parent_level.
+Keep Order::parent_level for O(1) cancel/modify.
 ```
 
-The safer cancel path is:
+The cancel path should remain:
 
 ```text
 id_to_order_[id] -> Order*
-Order has side and price
-SideBook::find(price) -> PriceLevel*
-PriceLevel::erase(order)
+Order::parent_level -> PriceLevel*
+PriceLevel::erase(order)   // intrusive-list erase is O(1)
 ```
 
-This avoids pointer-stability issues when price levels move between hot and
-cold storage.
+This requires any price-level storage used on the hot path to provide stable
+`PriceLevel` addresses for the lifetime of resting orders at that level.
 
 ---
 
@@ -421,7 +435,8 @@ Avoid these changes in the first implementation pass:
 - Do not add hot ring, bitmap, and cold hash indexing in one version.
 - Do not judge a design only on micro benchmarks; `hft_macro` is the final
   workload.
-- Do not keep `parent_level*` if price levels can move between containers.
+- Do not store live `PriceLevel` objects in containers that can move values
+  while orders still point at those levels.
 
 ---
 
@@ -435,8 +450,8 @@ V1: introduce SideBook backed by std::map
 ```
 
 These two versions create a stable foundation for later container experiments.
-Only after V1 is benchmark-neutral should the project move to `absl::btree_map`
-or hot-ring work.
+After V1 is benchmark-neutral, skip `absl::btree_map` for live price levels and
+move to telemetry before hot-ring work.
 
 The expected final architecture, if benchmarks justify it, is:
 
