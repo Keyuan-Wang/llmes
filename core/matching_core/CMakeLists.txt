@@ -1,5 +1,7 @@
 add_library(matching_core
   src/order_book.cpp
+  src/order_level.cpp
+  src/order_chunk_pool.cpp
   src/order_pool.cpp
 )
 

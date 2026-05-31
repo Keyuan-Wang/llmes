@@ -19,7 +19,7 @@ OrderLevel::~OrderLevel() {
 
 
 [[nodiscard]] Order* OrderLevel::allocate() noexcept {
-    if (free_order_head_ == nullptr) {
+    if (available_head_ == nullptr) {   // do not have any empty chunks
         OrderChunkPool::Chunk* chunk = chunk_pool_->acquire();
         if (chunk == nullptr)   // chunk pool is full
             return nullptr;
@@ -27,14 +27,25 @@ OrderLevel::~OrderLevel() {
         attach_chunk(chunk);
     }
 
-    Order* node = free_order_head_;
-    free_order_head_ = node->next;
 
-    node->prev = nullptr;
-    node->next = nullptr;
-    node->parent_level = this;
+    OrderChunkPool::Slot* next_free_slot = available_head_->get_free_slot();
+    Order* o = &next_free_slot->order;
+    
+    // this chunk is full
+    if (available_head_->free_count == 0)
+        unlink_available(OrderChunkPool::chunk_from_order(o));
 
-    return node;
+    // this chunk is full
+    if (chunk->free_count == 0) {
+        available_head_ = chunk->next_available;
+        chunk->next_available = nullptr;
+    }
+
+    order->prev = nullptr;
+    order->next = nullptr;
+    order->parent_level = this;
+
+    return order;
 }
 
 
@@ -63,24 +74,40 @@ void OrderLevel::remove(Order& o) noexcept {
     o.prev = nullptr;
     --size_;
 
+    // Calculate the chunk idx/ slot idx from address offset
+    Chunk* chunk = chunk_pool_->chunk_from_order(&o);
+    const std::uint16_t slot = chunk_pool_->slot_from_order(chunk, &o);
+
+    assert(chunk->free_count < OrderChunkPool::kChunkSize);
+
+    if (chunk->free_count == 0) {
+        chunk->next_available = available_head_;
+        available_head_ = chunk;
+    }
+
     // remove o from memory pool
-    o.next = free_order_head_;
-    o.parent_level = this;
-    free_order_head_ = &o;
+    o.prev = nullptr;
+    o.next = nullptr;
+    o.parent_level = nullptr;
 }
 
 void OrderLevel::attach_chunk(OrderChunkPool::Chunk* chunk) noexcept {
     assert(chunk != nullptr);
 
-    chunk->next = chunk_head_;
+    chunk->next_owned = chunk_head_;
     chunk_head_ = chunk;
 
-    free_order_head_ = &chunk->orders[0];
+    chunk->next_available = available_head_;
+    available_head_ = chunk;
 }
 
 void OrderLevel::release_chunks() noexcept {
-    chunk_pool_->release_chain(chunk_head_);
+    if (chunk_pool_ != nullptr && owned_head_ != nullptr) {
+        chunk_pool_->release_chain(owned_head_);
+    }
 
+    owned_head_ = nullptr;
+    available_head_ = nullptr;
     head_ = nullptr;
     tail_ = nullptr;
     size_ = 0;

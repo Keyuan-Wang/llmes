@@ -9,18 +9,20 @@ namespace matching {
 
 class OrderLevel {
 private:
+    using Chunk = OrderChunkPool::Chunk;
+
     OrderChunkPool* chunk_pool_ = nullptr;
-    OrderChunkPool::Chunk* chunk_head_ = nullptr;
+    Chunk* available_head_ = nullptr;
     
-    Order* free_order_head_ = nullptr;
     Order* head_ = nullptr;
     Order* tail_ = nullptr;
     std::size_t size_ = 0;
 
     // attach a new chunk to current chunk list
     void attach_chunk(OrderChunkPool::Chunk* chunk) noexcept;
-    // realse the chunks hold by current OrderLevel
-    void release_chunks() noexcept;
+    void link_available(Chunk* chunk) noexcept;
+    void unlink_available(Chunk* chunk) noexcept;
+    void release_empty_chunk(Chunk* chunk) noexcept;
 
 public:
     // --- Constructor ---
