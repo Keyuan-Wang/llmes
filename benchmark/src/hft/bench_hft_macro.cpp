@@ -9,7 +9,7 @@
  *
  * THE KEY DESIGN CHOICE:
  * All event parameters (RNG, cancel-target selection, tracking-map updates)
- * are pre-generated in Setup() — which is outside the timed window.
+ * are pre-generated in Setup() -- which is outside the timed window.
  * RunOp() executes pure OrderBook operations only, so latency/PMC samples
  * measure only the engine, not the benchmark harness.
  *
@@ -23,15 +23,29 @@
 #include "absl/container/flat_hash_map.h"
 
 #include <algorithm>
+#include <array>
+#include <chrono>
+#include <cstdint>
 #include <cstdlib>
+#include <fstream>
+#include <iostream>
 #include <memory>
+#include <string>
 #include <vector>
+
+#ifndef LLMES_PROFILE_HFT_MACRO_OPS
+#define LLMES_PROFILE_HFT_MACRO_OPS 0
+#endif
+
+#if LLMES_PROFILE_HFT_MACRO_OPS && (defined(__x86_64__) || defined(__i386__))
+#include <x86intrin.h>
+#endif
 
 namespace {
 
 // ------------------------------------------------------------------
 //  Pre-generated book-operation parameters.
-//  One PendingOp per RunOp() call — generated in Setup(), consumed in
+//  One PendingOp per RunOp() call -- generated in Setup(), consumed in
 //  RunOp(), so RNG and map lookups are outside the timed window.
 // ------------------------------------------------------------------
 struct PendingOp {
@@ -52,6 +66,17 @@ struct PendingOp {
     // All
     std::uint64_t oid;
 };
+
+#if LLMES_PROFILE_HFT_MACRO_OPS
+template <typename T>
+double QuantileNearestRank(std::vector<T> values, double q) {
+    if (values.empty()) return 0.0;
+    const std::size_t idx = static_cast<std::size_t>(
+        q * static_cast<double>(values.size() - 1));
+    std::nth_element(values.begin(), values.begin() + idx, values.end());
+    return static_cast<double>(values[idx]);
+}
+#endif
 
 // ------------------------------------------------------------------
 class BenchHftMacro final : public benchmark_runner::IBenchScenario {
@@ -76,6 +101,13 @@ public:
         best_bid_ = kInitialBestBid;
         best_ask_ = kInitialBestAsk;
 
+#if LLMES_PROFILE_HFT_MACRO_OPS
+        current_iter_is_measured_ = (iter_idx >= args.warmup_iters);
+        if (iter_idx == 0) {
+            ResetProfileState(args);
+        }
+#endif
+
         // --- Warmup (untimed, uses the old generate-execute-track loop) ---
         resting_orders_.clear();
         resting_ids_.clear();
@@ -95,7 +127,7 @@ public:
 
         // --- Pre-generate the measured batch ---
         // All event params are decided now.  RunOp() just replays them on
-        // the book — no RNG, no map lookups, no tracking updates inside
+        // the book -- no RNG, no map lookups, no tracking updates inside
         // the timed window.
         pending_.clear();
         pregen_queue_.clear();
@@ -105,13 +137,39 @@ public:
         pending_.resize(args.batch_size);  // discard excess from clusters
     }
 
-    bool RunOp(const benchmark_runner::Args&, std::uint64_t,
+    bool RunOp(const benchmark_runner::Args& args, std::uint64_t iter_idx,
                std::uint64_t batch_idx, std::uint64_t& ok) override {
-        execute_pending(batch_idx, ok);
+#if LLMES_PROFILE_HFT_MACRO_OPS
+        if (iter_idx >= args.warmup_iters) {
+            const std::uint64_t c0 = ReadCycles();
+            const auto t0 = Clock::now();
+            const ExecuteOutcome outcome = execute_pending(batch_idx, ok);
+            const auto t1 = Clock::now();
+            const std::uint64_t c1 = ReadCycles();
+
+            const auto dt_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                t1 - t0).count();
+            const std::uint64_t cycles = (c1 >= c0) ? (c1 - c0) : 0ULL;
+            RecordProfileSample(outcome, static_cast<double>(dt_ns), cycles);
+            return true;
+        }
+#endif
+        (void)execute_pending(batch_idx, ok);
         return true;
     }
 
-    void Teardown() override { book_.reset(); }
+    void Teardown() override {
+        book_.reset();
+#if LLMES_PROFILE_HFT_MACRO_OPS
+        if (current_iter_is_measured_) {
+            ++measured_iters_done_;
+            if (!profile_emitted_ && measured_iters_done_ >= profile_args_.iters) {
+                EmitProfile();
+                profile_emitted_ = true;
+            }
+        }
+#endif
+    }
 
 private:
     // Fixed absolute price band for the zero-intelligence macro workload.
@@ -123,6 +181,38 @@ private:
     static constexpr std::int64_t kInitialBestAsk = 1000;
     static constexpr std::uint64_t kPriceRangeLevels =
         static_cast<std::uint64_t>(kMaxPrice - kMinPrice + 1);
+    enum class OpBucket : std::uint8_t {
+        kAddRest = 0,
+        kAddCross,
+        kCancelHit,
+        kCancelMiss,
+        kModifyHit,
+        kModifyMiss,
+        kMarket,
+        kCount
+    };
+
+    struct ExecuteOutcome {
+        OpBucket bucket = OpBucket::kMarket;
+        std::uint64_t market_levels_touched = 0;
+        std::uint64_t market_filled_qty = 0;
+    };
+
+#if LLMES_PROFILE_HFT_MACRO_OPS
+    using Clock = std::chrono::steady_clock;
+
+    struct OpProfile {
+        const char* name = "";
+        std::uint64_t count = 0;
+        long double total_ns = 0.0L;
+        std::uint64_t total_cycles = 0;
+        std::vector<double> ns_samples;
+        std::uint64_t market_levels_sum = 0;
+        std::uint64_t market_filled_sum = 0;
+        std::vector<std::uint64_t> market_levels_samples;
+        std::vector<std::uint64_t> market_filled_samples;
+    };
+#endif
 
     // ================================================================
     //  State
@@ -149,6 +239,14 @@ private:
     std::vector<PendingOp> pending_;
     // Overflow queue: cluster cancels that didn't fit in pending_ spill here
     std::vector<PendingOp> pregen_queue_;
+
+#if LLMES_PROFILE_HFT_MACRO_OPS
+    std::array<OpProfile, static_cast<std::size_t>(OpBucket::kCount)> op_profile_{};
+    benchmark_runner::Args profile_args_{};
+    std::uint64_t measured_iters_done_ = 0;
+    bool current_iter_is_measured_ = false;
+    bool profile_emitted_ = false;
+#endif
 
     static bool price_in_range(std::int64_t price) noexcept {
         return price >= kMinPrice && price <= kMaxPrice;
@@ -358,33 +456,47 @@ private:
 
         // We cannot predict which specific maker orders will be filled by
         // the market order (the engine decides based on FIFO queue order).
-        // Skip tracking updates — the tracking will be slightly optimistic
+        // Skip tracking updates -- the tracking will be slightly optimistic
         // for remaining events in this batch, but the error is negligible
         // (market is 2% of events) and resets every iteration.
     }
 
     // ================================================================
-    //  Timed execution — RunOp calls this, pure book ops only
+    //  Timed execution -- RunOp calls this, pure book ops only
     // ================================================================
 
-    void execute_pending(std::size_t idx, std::uint64_t& ok) {
+    ExecuteOutcome execute_pending(std::size_t idx, std::uint64_t& ok) {
+        ExecuteOutcome outcome{};
+
         auto const& op = pending_[idx];
         switch (op.type) {
         case PendingOp::kLimitAdd: {
             auto const res =
                 book_->add_limit_order(op.oid, op.side, op.price, op.qty, op.oid);
             if (res.code == matching::ErrorCode::Success) ++ok;
+            outcome.bucket =
+                (res.code == matching::ErrorCode::Success && res.remaining_quantity > 0)
+                    ? OpBucket::kAddRest
+                    : OpBucket::kAddCross;
             break;
         }
         case PendingOp::kCancel: {
             auto const code = book_->cancel_order(op.target_id);
-            if (code == matching::ErrorCode::Success) ++ok;
+            if (code == matching::ErrorCode::Success) {
+                ++ok;
+                outcome.bucket = OpBucket::kCancelHit;
+            } else {
+                outcome.bucket = OpBucket::kCancelMiss;
+            }
             break;
         }
         case PendingOp::kModify: {
+            const bool existed_before = book_->contains_order(op.target_id);
             auto const res = book_->modify_order(op.target_id, op.side, op.price,
-                                                  op.qty, op.oid);
+                                                 op.qty, op.oid);
             if (res.code == matching::ErrorCode::Success) ++ok;
+            outcome.bucket =
+                existed_before ? OpBucket::kModifyHit : OpBucket::kModifyMiss;
             break;
         }
         case PendingOp::kMarket: {
@@ -393,13 +505,276 @@ private:
             if (res.code == matching::ErrorCode::Success ||
                 res.code == matching::ErrorCode::MarketRemainderCancelled)
                 ++ok;
+
+            outcome.bucket = OpBucket::kMarket;
+            outcome.market_filled_qty = res.filled_quantity;
+            outcome.market_levels_touched = CountTouchedLevels(res.trades);
             break;
         }
         }
+
+        return outcome;
     }
 
+    static std::uint64_t CountTouchedLevels(
+        const std::vector<matching::Trade>& trades) noexcept {
+        if (trades.empty()) return 0;
+
+        std::uint64_t levels = 0;
+        std::int64_t last_price = 0;
+        bool has_last = false;
+        for (const auto& trade : trades) {
+            if (!has_last || trade.price != last_price) {
+                ++levels;
+                last_price = trade.price;
+                has_last = true;
+            }
+        }
+        return levels;
+    }
+
+#if LLMES_PROFILE_HFT_MACRO_OPS
+    static std::uint64_t ReadCycles() noexcept {
+#if defined(__x86_64__) || defined(__i386__)
+        return __rdtsc();
+#else
+        return 0;
+#endif
+    }
+
+    void ResetProfileState(const benchmark_runner::Args& args) {
+        profile_args_ = args;
+        measured_iters_done_ = 0;
+        profile_emitted_ = false;
+
+        static constexpr std::array<const char*, static_cast<std::size_t>(OpBucket::kCount)>
+            kNames = {
+                "add_rest",
+                "add_cross",
+                "cancel_hit",
+                "cancel_miss",
+                "modify_hit",
+                "modify_miss",
+                "market"
+            };
+
+        const std::size_t samples = static_cast<std::size_t>(args.batch_size * args.iters);
+        const std::size_t reserve_total = std::max<std::size_t>(samples, 64);
+        const std::array<std::size_t, static_cast<std::size_t>(OpBucket::kCount)> weights = {
+            30, 15, 40, 8, 4, 1, 2
+        };
+
+        for (std::size_t i = 0; i < op_profile_.size(); ++i) {
+            auto& p = op_profile_[i];
+            p.name = kNames[i];
+            p.count = 0;
+            p.total_ns = 0.0L;
+            p.total_cycles = 0;
+            p.market_levels_sum = 0;
+            p.market_filled_sum = 0;
+            p.ns_samples.clear();
+            p.market_levels_samples.clear();
+            p.market_filled_samples.clear();
+
+            const std::size_t reserve =
+                std::max<std::size_t>(32, (reserve_total * weights[i]) / 100);
+            p.ns_samples.reserve(reserve);
+            if (i == static_cast<std::size_t>(OpBucket::kMarket)) {
+                p.market_levels_samples.reserve(reserve);
+                p.market_filled_samples.reserve(reserve);
+            }
+        }
+    }
+
+    void RecordProfileSample(const ExecuteOutcome& outcome, double ns,
+                             std::uint64_t cycles) {
+        auto& p = op_profile_[static_cast<std::size_t>(outcome.bucket)];
+        ++p.count;
+        p.total_ns += ns;
+        p.total_cycles += cycles;
+        p.ns_samples.push_back(ns);
+
+        if (outcome.bucket == OpBucket::kMarket) {
+            p.market_levels_sum += outcome.market_levels_touched;
+            p.market_filled_sum += outcome.market_filled_qty;
+            p.market_levels_samples.push_back(outcome.market_levels_touched);
+            p.market_filled_samples.push_back(outcome.market_filled_qty);
+        }
+    }
+
+    void EmitProfile() const {
+        std::uint64_t total_ops = 0;
+        long double total_ns = 0.0L;
+        long double total_cycles = 0.0L;
+        for (const auto& p : op_profile_) {
+            total_ops += p.count;
+            total_ns += p.total_ns;
+            total_cycles += static_cast<long double>(p.total_cycles);
+        }
+
+        if (total_ops == 0) return;
+
+        const char* out_path = std::getenv("LLMES_HFT_MACRO_OP_PROFILE_OUT");
+        const bool write_csv = (out_path != nullptr && out_path[0] != '\0');
+        if (write_csv) {
+            benchmark_runner::EnsureCsvHeader(
+                out_path,
+                "scenario,version_tag,commit_sha,trial_id,seed,orders,levels,batch_size,"
+                "warmup_iters,iters,op_type,count,share,mean_ns,p50_ns,p95_ns,p99_ns,"
+                "mean_cycles,weighted_ns_per_event,weighted_cycles_per_event,"
+                "weighted_ns_share,weighted_cycles_share,market_levels_mean,"
+                "market_levels_p95,market_levels_p99,market_filled_qty_mean,"
+                "market_filled_qty_p95,market_filled_qty_p99");
+        }
+
+        std::cout << "macro_op_profile"
+                  << " scenario=" << Name()
+                  << " version_tag=" << profile_args_.version_tag
+                  << " commit_sha=" << profile_args_.commit_sha
+                  << " trial_id=" << profile_args_.trial_id
+                  << " seed=" << profile_args_.seed
+                  << " orders=" << profile_args_.orders
+                  << " levels=" << profile_args_.levels
+                  << " batch_size=" << profile_args_.batch_size
+                  << " warmup_iters=" << profile_args_.warmup_iters
+                  << " iters=" << profile_args_.iters
+                  << " total_ops=" << total_ops
+                  << "\n";
+
+        for (const auto& p : op_profile_) {
+            const double share = static_cast<double>(p.count) /
+                                 static_cast<double>(total_ops);
+            const double mean_ns = (p.count > 0)
+                                       ? static_cast<double>(p.total_ns /
+                                            static_cast<long double>(p.count))
+                                       : 0.0;
+            const double p50_ns = benchmark_runner::Percentile(p.ns_samples, 0.50);
+            const double p95_ns = benchmark_runner::Percentile(p.ns_samples, 0.95);
+            const double p99_ns = benchmark_runner::Percentile(p.ns_samples, 0.99);
+            const double mean_cycles = (p.count > 0)
+                                           ? static_cast<double>(p.total_cycles) /
+                                                 static_cast<double>(p.count)
+                                           : 0.0;
+
+            const double weighted_ns_per_event = share * mean_ns;
+            const double weighted_cycles_per_event = share * mean_cycles;
+            const double weighted_ns_share =
+                (total_ns > 0.0L)
+                    ? static_cast<double>(p.total_ns / total_ns)
+                    : 0.0;
+            const double weighted_cycles_share =
+                (total_cycles > 0.0L)
+                    ? static_cast<double>(
+                        static_cast<long double>(p.total_cycles) / total_cycles)
+                    : 0.0;
+
+            double market_levels_mean = 0.0;
+            double market_levels_p95 = 0.0;
+            double market_levels_p99 = 0.0;
+            double market_filled_mean = 0.0;
+            double market_filled_p95 = 0.0;
+            double market_filled_p99 = 0.0;
+            if (std::string(p.name) == "market" && p.count > 0) {
+                market_levels_mean = static_cast<double>(p.market_levels_sum) /
+                                     static_cast<double>(p.count);
+                market_levels_p95 =
+                    QuantileNearestRank(p.market_levels_samples, 0.95);
+                market_levels_p99 =
+                    QuantileNearestRank(p.market_levels_samples, 0.99);
+                market_filled_mean = static_cast<double>(p.market_filled_sum) /
+                                     static_cast<double>(p.count);
+                market_filled_p95 =
+                    QuantileNearestRank(p.market_filled_samples, 0.95);
+                market_filled_p99 =
+                    QuantileNearestRank(p.market_filled_samples, 0.99);
+            }
+
+            std::cout << "macro_op_profile"
+                      << " op_type=" << p.name
+                      << " count=" << p.count
+                      << " share=" << share
+                      << " mean_ns=" << mean_ns
+                      << " p50_ns=" << p50_ns
+                      << " p95_ns=" << p95_ns
+                      << " p99_ns=" << p99_ns
+                      << " mean_cycles=" << mean_cycles
+                      << " weighted_ns_per_event=" << weighted_ns_per_event
+                      << " weighted_cycles_per_event=" << weighted_cycles_per_event
+                      << " weighted_ns_share=" << weighted_ns_share
+                      << " weighted_cycles_share=" << weighted_cycles_share
+                      << " market_levels_mean=" << market_levels_mean
+                      << " market_levels_p95=" << market_levels_p95
+                      << " market_levels_p99=" << market_levels_p99
+                      << " market_filled_qty_mean=" << market_filled_mean
+                      << " market_filled_qty_p95=" << market_filled_p95
+                      << " market_filled_qty_p99=" << market_filled_p99
+                      << "\n";
+
+            if (write_csv) {
+                std::ofstream f(out_path, std::ios::app);
+                f << Name()
+                  << ","
+                  << profile_args_.version_tag
+                  << ","
+                  << profile_args_.commit_sha
+                  << ","
+                  << profile_args_.trial_id
+                  << ","
+                  << profile_args_.seed
+                  << ","
+                  << profile_args_.orders
+                  << ","
+                  << profile_args_.levels
+                  << ","
+                  << profile_args_.batch_size
+                  << ","
+                  << profile_args_.warmup_iters
+                  << ","
+                  << profile_args_.iters
+                  << ","
+                  << p.name
+                  << ","
+                  << p.count
+                  << ","
+                  << share
+                  << ","
+                  << mean_ns
+                  << ","
+                  << p50_ns
+                  << ","
+                  << p95_ns
+                  << ","
+                  << p99_ns
+                  << ","
+                  << mean_cycles
+                  << ","
+                  << weighted_ns_per_event
+                  << ","
+                  << weighted_cycles_per_event
+                  << ","
+                  << weighted_ns_share
+                  << ","
+                  << weighted_cycles_share
+                  << ","
+                  << market_levels_mean
+                  << ","
+                  << market_levels_p95
+                  << ","
+                  << market_levels_p99
+                  << ","
+                  << market_filled_mean
+                  << ","
+                  << market_filled_p95
+                  << ","
+                  << market_filled_p99
+                  << "\n";
+            }
+        }
+    }
+#endif
+
     // ================================================================
-    //  Tracking helpers — only called during warmup + pre-generation
+    //  Tracking helpers -- only called during warmup + pre-generation
     // ================================================================
 
     void track_add_predicted(std::uint64_t id, std::int64_t price) {

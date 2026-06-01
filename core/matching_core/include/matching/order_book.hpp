@@ -170,6 +170,16 @@ public:
         return pending_cancel_ids_.size();
     }
 
+    /**
+     * @brief Whether an order id is currently resting on the book.
+     *
+     * @details Read-only helper used by benchmark instrumentation to classify
+     * modify operations into hit/miss buckets without mutating state.
+     */
+    [[nodiscard]] bool contains_order(std::uint64_t order_id) const noexcept {
+        return id_to_order_.contains(order_id);
+    }
+
 private:
     // Keep chunk_pool_ before bids_/asks_: members are destroyed in reverse
     // declaration order, so price levels disappear before their backing pool.
