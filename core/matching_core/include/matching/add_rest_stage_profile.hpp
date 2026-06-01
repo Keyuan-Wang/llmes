@@ -11,7 +11,8 @@ enum class AddRestStage : std::uint8_t {
     kMatch,
     kPoolAcquire,
     kNodeInit,
-    kLevelLookup,
+    kLevelLookupExisting,
+    kLevelCreateNew,
     kFifoAppend,
     kIdIndexInsert,
     kCount

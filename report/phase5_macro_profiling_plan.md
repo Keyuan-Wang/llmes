@@ -197,17 +197,26 @@ call site. `level_lookup` is the largest measured stage, but it is only about
 `match`, `id_index_insert`, `validation`, `fifo_append`, `node_init`, and
 `pool_acquire`.
 
+The next profiling split has now been instrumented in code. `level_lookup`
+is separated into:
+
+- `level_lookup_existing`
+- `level_create_new`
+
+The local smoke run already shows both sub-stages in the CSV output. The
+remaining work is to collect the same split on the cloud benchmark and compare
+the real hit-path cost against the rare create path.
+
 ## Next Work
 
 Phase 5 should keep refining the add-rest path before changing core data
-structures again.
-
-The next split should break `level_lookup` into two subcases:
+structures again. The current stage split is now in place, so the next step is
+to run the cloud benchmark with the finer-grained lookup split:
 
 | Stage | Question |
 |---|---|
-| existing-level lookup | How expensive is the common map hit path? |
-| new-level creation | How often does the book actually create a fresh price level? |
+| `level_lookup_existing` | How expensive is the common map hit path? |
+| `level_create_new` | How often does the book actually create a fresh price level? |
 
 The goal is to produce a finer-grained stage table for `add_rest`:
 

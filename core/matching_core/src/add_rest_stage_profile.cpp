@@ -20,8 +20,10 @@ const char* AddRestStageName(AddRestStage stage) noexcept {
         return "pool_acquire";
     case AddRestStage::kNodeInit:
         return "node_init";
-    case AddRestStage::kLevelLookup:
-        return "level_lookup";
+    case AddRestStage::kLevelLookupExisting:
+        return "level_lookup_existing";
+    case AddRestStage::kLevelCreateNew:
+        return "level_create_new";
     case AddRestStage::kFifoAppend:
         return "fifo_append";
     case AddRestStage::kIdIndexInsert:

@@ -261,13 +261,40 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
     PriceLevel* level = nullptr;
     {
 #if LLMES_PROFILE_ADD_REST_STAGES
-        ScopedAddRestStage stage(add_rest_profile, AddRestStage::kLevelLookup);
+        const bool level_lookup_profile_enabled = add_rest_profile.enabled();
+        const auto level_lookup_start_time =
+            level_lookup_profile_enabled ? ProfileClock::now() : ProfileClock::time_point{};
+        const std::uint64_t level_lookup_start_cycles =
+            level_lookup_profile_enabled ? ReadProfileCycles() : 0;
 #endif
+        [[maybe_unused]] bool inserted = false;
         if (side == Side::Buy) {
-            level = &bids_.get_or_create(price);
+            auto [lookup_level, was_inserted] = bids_.get_or_create(price);
+            level = lookup_level;
+            inserted = was_inserted;
         } else {
-            level = &asks_.get_or_create(price);
+            auto [lookup_level, was_inserted] = asks_.get_or_create(price);
+            level = lookup_level;
+            inserted = was_inserted;
         }
+#if LLMES_PROFILE_ADD_REST_STAGES
+        if (level_lookup_profile_enabled) {
+            const auto level_lookup_end_time = ProfileClock::now();
+            const std::uint64_t level_lookup_end_cycles = ReadProfileCycles();
+            const std::uint64_t level_lookup_ns =
+                static_cast<std::uint64_t>(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        level_lookup_end_time - level_lookup_start_time).count());
+            const std::uint64_t level_lookup_cycles =
+                (level_lookup_end_cycles >= level_lookup_start_cycles)
+                    ? (level_lookup_end_cycles - level_lookup_start_cycles)
+                    : 0;
+            add_rest_profile.Add(
+                inserted ? AddRestStage::kLevelCreateNew : AddRestStage::kLevelLookupExisting,
+                level_lookup_ns,
+                level_lookup_cycles);
+        }
+#endif
     }
 
     {

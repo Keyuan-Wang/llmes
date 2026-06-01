@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <unordered_set>
 #include <map>
+#include <utility>
 
 #include "absl/container/flat_hash_map.h"
 
@@ -62,8 +63,9 @@ public:
         return levels_.begin()->second;
     }
 
-    PriceLevel& get_or_create(std::int64_t price) {
-        return levels_[price];
+    [[nodiscard]] std::pair<PriceLevel*, bool> get_or_create(std::int64_t price) {
+        auto [it, inserted] = levels_.try_emplace(price);
+        return {&it->second, inserted};
     }
 
     void erase_best() {
