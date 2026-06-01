@@ -30,7 +30,8 @@ public:
 		// Pool must hold: prefilled + new ops during run
 		const std::uint64_t pool_size =
 			2 * args.orders + 2 * args.levels + args.batch_size + 5000;
-		book_ = std::make_unique<matching::OrderBook>(pool_size);
+		const std::uint64_t max_active_levels = 2 * args.levels + 998;
+		book_ = std::make_unique<matching::OrderBook>(pool_size, max_active_levels);
 		rng_ = benchmark_runner::SplitMix64(args.seed + iter_idx * 9973ULL);
 		op_rng_ = benchmark_runner::SplitMix64(args.seed * 1337ULL + iter_idx * 331ULL);
 

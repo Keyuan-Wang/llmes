@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -84,6 +85,7 @@ private:
 class ChunkPool {
 public :
     explicit ChunkPool(std::size_t order_capacity);
+    ChunkPool(std::size_t order_capacity, std::size_t max_active_levels);
 
     [[nodiscard]] Chunk* acquire_empty_chunk() noexcept;
     void release_empty_chunk(Chunk* chunk) noexcept;
@@ -100,6 +102,20 @@ public :
 private:
     inline static std::size_t chunk_count_for(std::size_t order_capacity) noexcept {
         return (order_capacity + Chunk::kChunkSize - 1) / Chunk::kChunkSize;
+    };
+
+    inline static std::size_t chunk_count_for(std::size_t order_capacity,
+                                              std::size_t max_active_levels) noexcept {
+        if (order_capacity == 0 || max_active_levels == 0) {
+            return 0;
+        }
+
+        const std::size_t active_levels = std::min(order_capacity, max_active_levels);
+
+        // Chunks are owned by one PriceLevel at a time. The worst case is one
+        // first chunk for every active level, plus one more chunk for each full
+        // kChunkSize block of orders beyond those first per-level orders.
+        return active_levels + (order_capacity - active_levels) / Chunk::kChunkSize;
     };
 
     // Fixed-size backing storage. The array is allocated once in the

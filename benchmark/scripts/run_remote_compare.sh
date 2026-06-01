@@ -39,10 +39,18 @@ VERSIONS="${VERSIONS:-phase2b:phase2b,phase2c:phase2c,phase2d:phase2d,phase2e:ph
 # Example:
 #   CHUNK_SWEEP=1 CHUNK_SIZES=32,64,128,256 VERSIONS="master:phase4b" ...
 #
+# By default CHUNK_SWEEP=1 applies to every version. To sweep only selected
+# version tags, set CHUNK_SWEEP_TAGS to a comma-separated list of labels from
+# VERSIONS. Non-selected versions run once with the branch default.
+#
+# Example:
+#   VERSIONS="phase4e:phase4e,master:master" CHUNK_SWEEP=1 CHUNK_SWEEP_TAGS=master ...
+#
 # One-command rollback to the old script behavior:
 #   CHUNK_SWEEP=0 ...
 CHUNK_SWEEP="${CHUNK_SWEEP:-0}"
 CHUNK_SIZES="${CHUNK_SIZES:-32,64,128,256}"
+CHUNK_SWEEP_TAGS="${CHUNK_SWEEP_TAGS:-}"
 
 # --- remote paths ---
 REMOTE_ROOT="${REMOTE_ROOT:-/root/llmes-bench}"
@@ -113,6 +121,11 @@ for ((i=0; i<N_VERSIONS; i++)); do
 done
 if [[ "$CHUNK_SWEEP" == "1" ]]; then
   echo "  Chunk sweep : enabled ($CHUNK_SIZES)"
+  if [[ -n "$CHUNK_SWEEP_TAGS" ]]; then
+    echo "  Sweep tags  : $CHUNK_SWEEP_TAGS"
+  else
+    echo "  Sweep tags  : all"
+  fi
 else
   echo "  Chunk sweep : disabled (legacy compare mode)"
 fi
@@ -138,7 +151,7 @@ ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SERVER_IP}" \
    COMMITS_STR='$COMMITS_STR' TAGS_STR='$TAGS_STR' \
    REMOTE_ROOT='$REMOTE_ROOT' REMOTE_REPO_DIR='$REMOTE_REPO_DIR' \
    REMOTE_ARTIFACTS_DIR='$REMOTE_ARTIFACTS_DIR' REMOTE_TARBALL='$REMOTE_TARBALL' \
-   CHUNK_SWEEP='$CHUNK_SWEEP' CHUNK_SIZES='$CHUNK_SIZES' \
+   CHUNK_SWEEP='$CHUNK_SWEEP' CHUNK_SIZES='$CHUNK_SIZES' CHUNK_SWEEP_TAGS='$CHUNK_SWEEP_TAGS' \
    SCENARIOS='$SCENARIOS' METRICS='$METRICS' ORDERS='$ORDERS' LEVELS='$LEVELS' \
    BATCH_SIZES='$BATCH_SIZES' TRIALS='$TRIALS' ITERS='$ITERS' WARMUP_ITERS='$WARMUP_ITERS' \
    SEED='$SEED' \
@@ -238,6 +251,37 @@ else
   CHUNK_VALUES=("default")
 fi
 
+SWEEP_TAGS=()
+if [[ -n "$CHUNK_SWEEP_TAGS" ]]; then
+  IFS=',' read -r -a RAW_SWEEP_TAGS <<< "$CHUNK_SWEEP_TAGS"
+  for sweep_tag in "${RAW_SWEEP_TAGS[@]}"; do
+    sweep_tag="$(echo "$sweep_tag" | xargs)"
+    if [[ -n "$sweep_tag" ]]; then
+      SWEEP_TAGS+=("$sweep_tag")
+    fi
+  done
+fi
+
+should_sweep_tag() {
+  local tag="$1"
+
+  if [[ "$CHUNK_SWEEP" != "1" ]]; then
+    return 1
+  fi
+
+  if (( ${#SWEEP_TAGS[@]} == 0 )); then
+    return 0
+  fi
+
+  for sweep_tag in "${SWEEP_TAGS[@]}"; do
+    if [[ "$tag" == "$sweep_tag" ]]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 RES_DIR="$REMOTE_REPO_DIR/benchmark/results"
 
 # ---- 4. Run benchmark for each version ----
@@ -303,8 +347,13 @@ for ((idx=0; idx<N; idx++)); do
   sha="$(git rev-parse --short HEAD)"
   echo "  commit = $sha"
 
-  for chunk_idx in "${!CHUNK_VALUES[@]}"; do
-    chunk_size="${CHUNK_VALUES[$chunk_idx]}"
+  VARIANT_CHUNK_VALUES=("default")
+  if should_sweep_tag "$tag"; then
+    VARIANT_CHUNK_VALUES=("${CHUNK_VALUES[@]}")
+  fi
+
+  for chunk_idx in "${!VARIANT_CHUNK_VALUES[@]}"; do
+    chunk_size="${VARIANT_CHUNK_VALUES[$chunk_idx]}"
 
     if [[ "$chunk_size" == "default" ]]; then
       run_tag="$tag"
@@ -383,6 +432,7 @@ FIXED_ORDERS="$FIXED_ORDERS" \
   echo "timestamp=$(date -Iseconds)"
   echo "chunk_sweep=$CHUNK_SWEEP"
   echo "chunk_sizes=$CHUNK_SIZES"
+  echo "chunk_sweep_tags=$CHUNK_SWEEP_TAGS"
   for ((idx=0; idx<${#RUN_TAGS[@]}; idx++)); do
     echo "variant_$((idx+1))_commit=${RUN_COMMIT_SHAS[$idx]}"
     echo "variant_$((idx+1))_tag=${RUN_TAGS[$idx]}"

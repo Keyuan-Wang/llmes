@@ -94,6 +94,18 @@ public:
         , asks_(&chunk_pool_) {};
 
     /**
+     * @brief Constructs an empty book with a bound on simultaneous live price levels.
+     *
+     * @details Chunk storage is level-local, so capacity must account for both
+     * total resting orders and fragmentation across active prices. Pass this
+     * overload when the workload has a known maximum number of live levels.
+     */
+    OrderBook(std::size_t pool_capacity, std::size_t max_active_levels)
+        : chunk_pool_(pool_capacity, max_active_levels)
+        , bids_(&chunk_pool_)
+        , asks_(&chunk_pool_) {};
+
+    /**
      * @brief Submit a limit order: match against the opposite side, rest remainder on book.
      *
      * @param order_id   Unique order id (must not duplicate a resting id or pending cancel).

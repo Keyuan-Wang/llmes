@@ -20,7 +20,8 @@ public:
     [[nodiscard]] std::uint64_t max_batch_size() const override { return 1; }
 
     void Setup(const benchmark_runner::Args& args, std::uint64_t iter_idx) override {
-        book_ = std::make_unique<matching::OrderBook>(args.orders + args.levels + 5000);
+        book_ = std::make_unique<matching::OrderBook>(
+            args.orders + args.levels + 5000, args.levels + 2);
         rng_ = benchmark_runner::SplitMix64(args.seed + iter_idx * 9973ULL);
         id_counter_ = 1'000'000ULL + args.seed + iter_idx * 9973ULL;
         id_base_ = 200'000'000ULL;

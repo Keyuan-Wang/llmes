@@ -142,6 +142,24 @@ Chunk::Slot* Chunk::slot_from_order(const Order* order) noexcept {
 ChunkPool::ChunkPool(std::size_t order_capacity)
     : chunk_count_(chunk_count_for(order_capacity))
     , chunks_(std::make_unique<Chunk[]>(chunk_count_)) {
+    // Single-argument construction preserves the old dense-pool capacity
+    // model. Use the two-argument constructor when the caller knows the
+    // maximum number of active price levels and needs fragmentation-safe
+    // chunk provisioning.
+    for (std::size_t i = 0; i < chunk_count_; ++i) {
+        Chunk& chunk = chunks_[i];
+
+        assert(chunk.empty());
+
+        chunk.next_free_pool_ = free_chunk_head_;
+        free_chunk_head_ = &chunk;
+    }
+}
+
+
+ChunkPool::ChunkPool(std::size_t order_capacity, std::size_t max_active_levels)
+    : chunk_count_(chunk_count_for(order_capacity, max_active_levels))
+    , chunks_(std::make_unique<Chunk[]>(chunk_count_)) {
     
     // All chunks start empty, so wire the entire fixed array into the global
     // free-chunk stack. The chunks_ array is never resized after this point.

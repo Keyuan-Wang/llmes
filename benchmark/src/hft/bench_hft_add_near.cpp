@@ -24,7 +24,8 @@ public:
 
     void Setup(const benchmark_runner::Args& args, std::uint64_t iter_idx) override {
         const std::uint64_t pool = args.orders + args.levels + args.batch_size + 5000;
-        book_ = std::make_unique<matching::OrderBook>(pool);
+        const std::uint64_t max_active_levels = args.levels + 2;
+        book_ = std::make_unique<matching::OrderBook>(pool, max_active_levels);
         rng_ = benchmark_runner::SplitMix64(args.seed + iter_idx * 9973ULL);
         id_counter_ = 1'000'000ULL + args.seed + iter_idx * 9973ULL;
         best_price_ = 1000;  // best ask after prefill

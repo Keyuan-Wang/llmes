@@ -23,7 +23,7 @@ class MktSweepDeepScenario : public benchmark_runner::IBenchScenario {
 	}
 
 	void Setup(const benchmark_runner::Args& args, std::uint64_t iter_idx) override {
-	book_ = std::make_unique<matching::OrderBook>(args.orders + args.levels + 100);
+	book_ = std::make_unique<matching::OrderBook>(args.orders + args.levels + 100, args.levels);
 	rng_ = benchmark_runner::SplitMix64(args.seed + iter_idx * 9973ULL);
 	base_ = 300'000ULL;
 	benchmark_runner::PrefillSellBook(*book_, args.orders, args.levels, base_);

@@ -22,6 +22,7 @@
 
 #include "absl/container/flat_hash_map.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <memory>
 #include <vector>
@@ -64,15 +65,16 @@ public:
                std::uint64_t iter_idx) override {
         const std::uint64_t warmup_events = 500'000;
         const std::uint64_t pool = warmup_events + args.batch_size + 50000;
+        const std::uint64_t max_active_levels = std::min(pool, kPriceRangeLevels);
 
-        book_ = std::make_unique<matching::OrderBook>(pool);
+        book_ = std::make_unique<matching::OrderBook>(pool, max_active_levels);
         event_rng_ =
             benchmark_runner::SplitMix64(args.seed + iter_idx * 9973ULL);
         param_rng_ = benchmark_runner::SplitMix64(
             args.seed * 1337ULL + iter_idx * 331ULL);
         id_counter_ = 1'000'000ULL;
-        best_bid_ = 999;
-        best_ask_ = 1000;
+        best_bid_ = kInitialBestBid;
+        best_ask_ = kInitialBestAsk;
 
         // --- Warmup (untimed, uses the old generate-execute-track loop) ---
         resting_orders_.clear();
@@ -112,6 +114,16 @@ public:
     void Teardown() override { book_.reset(); }
 
 private:
+    // Fixed absolute price band for the zero-intelligence macro workload.
+    // Because crossing orders immediately trade, live bid/ask price levels
+    // cannot overlap; therefore the live level count is bounded by this range.
+    static constexpr std::int64_t kMinPrice = 1;
+    static constexpr std::int64_t kMaxPrice = 8192;
+    static constexpr std::int64_t kInitialBestBid = 999;
+    static constexpr std::int64_t kInitialBestAsk = 1000;
+    static constexpr std::uint64_t kPriceRangeLevels =
+        static_cast<std::uint64_t>(kMaxPrice - kMinPrice + 1);
+
     // ================================================================
     //  State
     // ================================================================
@@ -128,7 +140,7 @@ private:
     absl::flat_hash_map<std::int64_t, std::uint64_t> level_counts_;
 
     std::int64_t best_bid_ = 0;
-    std::int64_t best_ask_ = 1000;
+    std::int64_t best_ask_ = kInitialBestAsk;
 
     // Cluster cancel ID queue (for warmup's generate-and-execute path)
     std::vector<std::uint64_t> cluster_queue_;
@@ -137,6 +149,69 @@ private:
     std::vector<PendingOp> pending_;
     // Overflow queue: cluster cancels that didn't fit in pending_ spill here
     std::vector<PendingOp> pregen_queue_;
+
+    static bool price_in_range(std::int64_t price) noexcept {
+        return price >= kMinPrice && price <= kMaxPrice;
+    }
+
+    // Reflecting keeps out-of-range samples inside the fixed price band without
+    // piling all boundary hits onto kMinPrice/kMaxPrice the way clamp() would.
+    static std::int64_t reflect_price(std::int64_t price) noexcept {
+        if (price_in_range(price)) {
+            return price;
+        }
+
+        constexpr std::int64_t span = kMaxPrice - kMinPrice;
+        constexpr std::int64_t period = 2 * span;
+
+        std::int64_t offset = (price - kMinPrice) % period;
+        if (offset < 0) {
+            offset += period;
+        }
+
+        return (offset <= span)
+            ? (kMinPrice + offset)
+            : (kMaxPrice - (offset - span));
+    }
+
+    int draw_near_best_offset() {
+        int offset = 0;
+        std::uint64_t r = param_rng_.next();
+        while ((r & 0xFF) < 161 && offset < 100) {
+            ++offset;
+            r >>= 8;
+        }
+        return (offset == 0) ? 1 : offset;
+    }
+
+    std::int64_t bounded_best_ask_reference() const noexcept {
+        return reflect_price((best_ask_ > 0) ? best_ask_ : kInitialBestAsk);
+    }
+
+    std::int64_t draw_limit_price(matching::Side side) {
+        const std::int64_t ref = bounded_best_ask_reference();
+        std::int64_t candidate = ref;
+
+        for (int attempt = 0; attempt < 8; ++attempt) {
+            const int offset = draw_near_best_offset();
+            candidate = (side == matching::Side::Buy)
+                ? ref - offset - 1
+                : ref + offset;
+            if (price_in_range(candidate)) {
+                return candidate;
+            }
+        }
+
+        return reflect_price(candidate);
+    }
+
+    std::int64_t draw_modified_price(std::int64_t old_price) {
+        const int delta = 1 + static_cast<int>(param_rng_.next() % 3);
+        const std::int64_t candidate =
+            old_price + ((param_rng_.next() % 2 == 0) ? -delta : delta);
+
+        return price_in_range(candidate) ? candidate : reflect_price(candidate);
+    }
 
     // ================================================================
     //  Warmup event generation and execution (legacy path, untimed)
@@ -182,16 +257,7 @@ private:
         op.side = (param_rng_.next() % 2 == 0) ? matching::Side::Buy
                                                 : matching::Side::Sell;
 
-        std::int64_t const ref = (best_ask_ > 0) ? best_ask_ : 1000;
-        int offset = 0;
-        std::uint64_t r = param_rng_.next();
-        while ((r & 0xFF) < 161 && offset < 100) {
-            ++offset; r >>= 8;
-        }
-        if (offset == 0) offset = 1;
-        op.price = (op.side == matching::Side::Buy)
-                       ? std::max<std::int64_t>(1, ref - offset - 1)
-                       : ref + offset;
+        op.price = draw_limit_price(op.side);
 
         static constexpr std::uint64_t kQtyTable[32] = {
             1,1,1,2,2,2,3,3,3,4,4,4,5,5,5,5,
@@ -246,9 +312,7 @@ private:
         std::int64_t const old_price =
             (it != resting_orders_.end()) ? it->second : 0;
 
-        int const delta = 1 + static_cast<int>(param_rng_.next() % 3);
-        std::int64_t const new_price =
-            old_price + ((param_rng_.next() % 2 == 0) ? -delta : delta);
+        std::int64_t const new_price = draw_modified_price(old_price);
         std::uint64_t const new_qty = 1 + (param_rng_.next() % 20);
 
         PendingOp op;
@@ -358,13 +422,13 @@ private:
         best_ask_ = 0;
         for (auto const& [price, count] : level_counts_) {
             if (count == 0) continue;
-            if (price >= 1000) {
+            if (price >= kInitialBestAsk) {
                 if (best_ask_ == 0 || price < best_ask_) best_ask_ = price;
             } else {
                 if (best_bid_ == 0 || price > best_bid_) best_bid_ = price;
             }
         }
-        if (best_ask_ == 0) best_ask_ = 1000;
+        if (best_ask_ == 0) best_ask_ = kInitialBestAsk;
     }
 
     // ================================================================
@@ -375,16 +439,7 @@ private:
         matching::Side const side =
             (param_rng_.next() % 2 == 0) ? matching::Side::Buy
                                          : matching::Side::Sell;
-        std::int64_t const ref = (best_ask_ > 0) ? best_ask_ : 1000;
-        int offset = 0;
-        std::uint64_t r = param_rng_.next();
-        while ((r & 0xFF) < 161 && offset < 100) {
-            ++offset; r >>= 8;
-        }
-        if (offset == 0) offset = 1;
-        std::int64_t const price = (side == matching::Side::Buy)
-                                       ? std::max<std::int64_t>(1, ref - offset - 1)
-                                       : ref + offset;
+        std::int64_t const price = draw_limit_price(side);
         static constexpr std::uint64_t kQtyTable[32] = {
             1,1,1,2,2,2,3,3,3,4,4,4,5,5,5,5,
             5,6,6,6,7,7,8,9,10,12,15,20,30,50,75,100};
@@ -432,9 +487,7 @@ private:
         auto const it = resting_orders_.find(target);
         std::int64_t const old_price =
             (it != resting_orders_.end()) ? it->second : 0;
-        int const delta = 1 + static_cast<int>(param_rng_.next() % 3);
-        std::int64_t const new_price =
-            old_price + ((param_rng_.next() % 2 == 0) ? -delta : delta);
+        std::int64_t const new_price = draw_modified_price(old_price);
         std::uint64_t const new_qty = 1 + (param_rng_.next() % 20);
         std::uint64_t const ts = id_counter_++;
         matching::Side const side =
@@ -505,7 +558,7 @@ private:
             min_dist = 6; max_dist = 1000000;
         }
 
-        std::int64_t const best = (best_ask_ > 0) ? best_ask_ : 1000;
+        std::int64_t const best = bounded_best_ask_reference();
         for (int attempt = 0; attempt < 200; ++attempt) {
             std::uint64_t const id =
                 resting_ids_[param_rng_.next() % resting_ids_.size()];
@@ -529,7 +582,7 @@ private:
     void enqueue_cluster_pending() {
         int const n = draw_cluster_size();
         if (n <= 1) return;
-        std::int64_t const best = (best_ask_ > 0) ? best_ask_ : 1000;
+        std::int64_t const best = bounded_best_ask_reference();
         for (int i = 0; i < n && !resting_orders_.empty(); ++i) {
             for (int attempt = 0; attempt < 50; ++attempt) {
                 std::uint64_t const id =
@@ -553,7 +606,7 @@ private:
     void enqueue_cluster_legacy() {
         int const n = draw_cluster_size();
         if (n <= 1) return;
-        std::int64_t const best = (best_ask_ > 0) ? best_ask_ : 1000;
+        std::int64_t const best = bounded_best_ask_reference();
         for (int i = 0; i < n && !resting_orders_.empty(); ++i) {
             for (int attempt = 0; attempt < 50; ++attempt) {
                 std::uint64_t const id =
