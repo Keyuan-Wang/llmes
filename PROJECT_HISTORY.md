@@ -432,12 +432,11 @@ tracking may be drifting away from the actual book state. Before optimizing the
 engine based on this table, the benchmark accounting should be reviewed and
 made trustworthy.
 
-### Follow-up Fix (Local Working Tree)
+### Follow-up Fix and Cloud Validation
 
-A follow-up benchmark fix was implemented in
-`benchmark/src/hft/bench_hft_macro.cpp` using the same operation-mix policy
-(random draw with 45/48/5/2 percentages), but replacing predictive batch
-generation with a planning replay model:
+A follow-up benchmark fix was implemented in `benchmark/src/hft/bench_hft_macro.cpp`
+using the same operation-mix policy (random draw with 45/48/5/2 percentages),
+but replacing predictive batch generation with a planning replay model:
 
 - warmup still runs once
 - two books are rebuilt from the same warmup snapshot:
@@ -468,6 +467,65 @@ Local smoke validation (`TRIALS=1`, `BATCH_SIZE=20000`) shows:
 This result supports the earlier diagnosis that high `cancel_miss` was mainly a
 benchmark-accounting artifact rather than an engine behavior signal.
 
+A later cloud validation ran the repaired profiling on `phase4-finale`:
+
+```text
+branch:       phase4-finale
+commit:       efc1b67
+trials:       1
+orders:       100000
+levels:       100
+batch_size:   100000
+warmup_iters: 1
+iters:        1
+```
+
+Artifacts:
+
+```text
+server_results/macro_op_profile_cloud_phase4_finale_t1/
+report/phase4_hft_macro_optimization_priority.md
+```
+
+Overall:
+
+| Metric | Value |
+|---|---:|
+| avg ns/op | 110.793 |
+| ops/s | 9.026M |
+| ok | 199977 |
+
+Operation profile:
+
+| Operation | Share | mean ns | p99 ns | weighted time share |
+|---|---:|---:|---:|---:|
+| `add_rest` | 47.867% | 69.848 | 160.0 | 52.977% |
+| `add_cross` | 0.469% | 76.311 | 190.0 | 0.567% |
+| `cancel_hit` | 46.153% | 48.459 | 70.0 | 35.438% |
+| `cancel_miss` | 0.000% | 0.000 | 0.0 | 0.000% |
+| `modify_hit` | 3.919% | 131.357 | 310.0 | 8.157% |
+| `modify_miss` | 0.000% | 0.000 | 0.0 | 0.000% |
+| `market` | 1.592% | 113.417 | 431.8 | 2.861% |
+
+The main findings from this repaired profile are:
+
+- `cancel_miss` and `modify_miss` are both zero, confirming that the earlier
+  miss-heavy profile was a benchmark-accounting artifact.
+- `add_rest` is the dominant measured cost center: it contributes 52.977% of
+  total weighted macro time.
+- `cancel_hit` remains important at 35.438% weighted time, but its latency is
+  already low and tight-tailed (`mean=48.459ns`, `p99=70ns`).
+- `modify_hit` is individually expensive (`mean=131.357ns`) but low-frequency,
+  contributing 8.157% weighted time.
+- `market` is not the current macro bottleneck: it contributes only 2.861%
+  weighted time, with `market_levels_p99=1` and `market_filled_qty_p99=5`.
+- The result weakens the original ChunkPool cache-locality hypothesis for macro
+  performance. The measured workload is dominated by high-frequency resting-add
+  fixed costs, not by deep sweeps or cancel traversal.
+- From an HFT engineering perspective, the most profit-sensitive path exposed
+  by this profile is `add_rest`, because it is both the largest weighted cost
+  and the quote-placement path affecting FIFO queue priority.
+
 ## Current Status
 
 As of the current repository state:
@@ -476,5 +534,7 @@ As of the current repository state:
 - per-operation HFT macro profiling has been added
 - ChunkPool benchmark artifacts are recorded but the design is not the active
   baseline
-- macro workload accounting fix is implemented in the local working tree and
-  smoke-tested; full cloud `TRIALS=10` verification is the next step
+- repaired macro workload accounting has been cloud-validated on
+  `phase4-finale`
+- the latest profiling analysis is recorded in
+  `report/phase4_hft_macro_optimization_priority.md`
