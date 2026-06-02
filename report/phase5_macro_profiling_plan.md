@@ -391,24 +391,73 @@ The reason, stated as data: the operations being timed are ~5–40 ns each, whil
 
 Going forward, hot-path attribution uses **`perf record` with the window-isolated control FIFO** (this section) for cost-center and branch-miss attribution, and the existing **operation-level profiling** (`LLMES_PROFILE_HFT_MACRO_OPS`, which times whole operations with a single timer pair and whose op shares are corroborated by the perf function-level breakdown) for op-mix weighting. Sub-operation timing via inline instrumentation is no longer used.
 
-### Revised Optimization Plan (production-evidence-ranked)
+## Revised Optimization Plan: Replace The Cancel-Index Hash Map
 
-**Tier 1 — Eliminate the `id_to_order_` double-probe (highest leverage, lowest risk).** Merge `contains` + `emplace` in `add_limit_order` into one `lazy_emplace` / `find_or_prepare_insert`. Recovers ~11% of macro cycles and ~10% of branch-misses. Also switch `pending_cancel_ids_` to an empty-guard + `absl::flat_hash_set` (free cleanup). Expected macro gain: ~+6–9%.
+> **Correction note:** an earlier draft of this plan proposed a "Tier 1" that merged the add-path `contains` + `emplace` into a single `lazy_emplace` to recover ~11% of cycles. **That idea is withdrawn** (see "1. Why The Hash Map Is At Its Ceiling" below). The real lever is not to do tricks on the hash map but to replace it.
 
-**Tier 2 — Attack `std::map` level churn (this re-opens the Phase 4 question).** The target is the create/destroy allocator + rebalance cost, not the lookup:
+The production `perf record` profile shows the cancel index (`id_to_order_`, an `absl::flat_hash_map<uint64_t, Order*>`) is ~50% of all macro cycles: add `contains` 11.2% + add `emplace` 9.9% + cancel `find` 19.9% + cancel `erase` 7.6%, plus the modify share. This section is the authoritative Phase 5 plan for attacking it.
 
-- **2a (safe, do first):** give `std::map` a pooled / free-list allocator so level create/destroy stops calling `operator new` / `malloc` / `cfree` (~5% cycles). Keeps `std::map` semantics and **pointer stability** (`Order::parent_level` stays valid). Low risk.
-- **2b (structural, higher risk):** replace `std::map` with `absl::btree_map` or a hot contiguous structure. `btree_map` moves values on rebalance, which would invalidate `Order::parent_level` — the exact constraint flagged in the Phase 4 storage report. Requires changing the ownership model (e.g. heap-allocate `PriceLevel` and store `PriceLevel*` in the container) before it is correct. Defer until 2a is measured.
+### 1. Why The Hash Map Is At Its Ceiling
 
-**Tier 3 — Leave the cancel `find` / `erase` (27.6%) alone.** This is `absl::flat_hash_map` doing necessary SIMD-probe work; cache misses are low and the cancel tail is already tight (p99 60 ns). No structural lever here without changing the index itself.
+Within the current contract — **arbitrary external `uint64_t` order ids** plus **"reject a duplicate / pending-cancel id before matching"** — the hash map cannot be made meaningfully cheaper:
 
-Combined Tier 1 + Tier 2a expected gain: ~+10–13% macro throughput. Crucially, this **breaks the "8% single-stage ceiling"** feared earlier, because these changes target *cross-cutting structural costs* (hash double-probe, allocator churn) rather than a single stage.
+- **The add-path double-probe cannot be merged.** The dup-check (`contains`) runs *before* matching and the insert (`emplace`) runs *after*. They are not redundant: the dup-check must reject a duplicate id before it consumes liquidity, so the two probes serve two different correctness purposes at two different times. Collapsing them into one call would change observable semantics (a duplicate would match first, then be rejected).
+- **A `find` + hinted insert does not help.** `absl::flat_hash_map` treats the iterator hint as a non-binding suggestion and in practice **ignores it entirely**; the hint-taking overloads forward to the non-hint versions. On the hot `add_rest` path the key is absent, so `find` returns `end()` and the subsequent insert must still recompute the hash and re-probe from scratch. There is no single-probe path that preserves the reject-before-match semantics.
+- **The probe work itself is already optimal.** The profile shows `find_large` → `Match` (`_mm_cmpeq_epi8`) + `PrefetchToLocalCache`: SIMD Swiss-table probing with prefetch. `absl` is at or near the practical floor for a general-purpose hash of an arbitrary 64-bit key. The low PMC cache-miss rate confirms this is compute-bound probe/hash work, not memory stalls.
+- **The `pending_cancel_ids_` guard is noise, not a lever.** It never surfaced in the profile (in steady state the set is empty, `cancel_miss = 0`). Switching it to `absl::flat_hash_set` or adding an empty-guard is cosmetic, not a measurable win.
 
-### Updated Working Rule For Phase 5
+The conclusion: **with the current id contract, the hash map's ~50% is essentially irreducible.** Further "tricks" (hint merging, guards, table-type swaps) optimize a cost center that is already at its ceiling. To recover this cost the id contract itself must change.
 
-The earlier rule ("do not introduce another storage redesign; the price index is not the constraint") is **revised**. The production profile shows two clear, data-backed targets:
+### 2. What Replaces It
 
-1. The redundant `id_to_order_` probe in the add path (structural, safe).
-2. The `std::map` level-create/destroy allocator + rebalance cost (start with a pooled allocator, keep pointer stability).
+Replace the hash map with a **generational slotmap** built directly on the existing `OrderPool` slab. The order's identity becomes its physical position, so lookup is an array index instead of a hash probe.
 
-The next code changes should be Tier 1 first, then Tier 2a, each validated with a 10-trial production PMC comparison (`instructions_per_op`, `branch_miss_rate`, `cache_misses_per_op`) plus a re-run of this window-isolated `perf record` to confirm the cost centers shrink as predicted.
+A handle is a packed 64-bit value:
+
+```text
+handle = [ generation : high bits ] [ slot_index : low bits ]
+```
+
+- `slot_index` indexes straight into the pool's `std::vector<Order>` — lookup is one array load, no hash, no probe, no tombstones.
+- `generation` is a per-slot counter bumped on every reuse. Cancel/modify compare the handle's generation against the slot's current generation; a mismatch is a stale handle and is rejected cleanly (this replaces the hash map's "find failed" path and prevents ABA when a slot is recycled).
+
+`id_to_order_` is then **deleted outright**, and the add-path duplicate check disappears with it (allocating a slot *is* the uniqueness guarantee).
+
+### 3. Why id pool + slotmap Is Feasible And Faster
+
+**Feasible — the id contract is controllable.** In a real venue the exchange gateway assigns the order id at acknowledgment time, so the engine (not an external client) owns id assignment and can make ids dense and engine-managed. The matching core only needs a dense handle for book lookups; any client order id (`clOrdId`) that must be echoed back lives at the gateway layer, outside the hot path. We keep `Order.id` purely for trade reporting (`Trade::taker_order_id` / `maker_order_id`) and decouple it from the lookup key.
+
+**Feasible — the slab already exists.** `OrderPool` is already a contiguous `std::vector<Order>` with an intrusive free list, so `slot_index = &order - &pool_[0]` is free. Half of the slotmap is already implemented; we add a per-slot generation and return handles from `acquire()`.
+
+**Faster — measured against the profile:**
+
+| Path | Now (`absl` hash) | Slotmap |
+|---|---:|---|
+| cancel `find` | 19.9% | array index + generation compare (~0) |
+| cancel `erase` | 7.6% | free-list push (~1%) |
+| add dup `contains` | 11.2% | not needed (slot allocation is the check) |
+| add `emplace` | 9.9% | not needed (handle *is* the slot) |
+
+Most of the ~50% cancel-index cost is recoverable, minus a few percent of new generation bookkeeping. This is the **single largest lever** identified in the whole profiling effort — larger than anything achievable inside the hash map or on `std::map`.
+
+**Why naive direct indexing is not enough (and the slotmap is the right form).** A plain `std::vector<Order*>` indexed by id fails: ids are monotonic and unbounded over a run (in the benchmark `id_counter_` only increments), so the array would grow with total ops, not with live-order count — effectively a leak. Recycling ids bounds the array to the live-order count, and recycling reintroduces ABA, which is exactly what the generation field solves. The slotmap is the structure that simultaneously gives O(1) no-hash lookup, bounded memory, and safe stale-handle detection.
+
+**Open decisions / wrinkles to settle before implementing:**
+
+- **cancel-before-insert semantics.** `pending_cancel_ids_` exists for out-of-order client traffic (a cancel arriving before its insert). With engine-assigned handles this cannot happen — you cannot hold a handle the engine has not yet issued — so the path can be dropped from the matching core (it belongs at the gateway, if needed at all). This needs an explicit decision.
+- **Generation correctness is mandatory, not optional.** Without it, cancelling a recycled slot would silently remove the wrong order. This is the main correctness risk of the redesign.
+- **Benchmark change required for measurement.** `bench_hft_macro` currently self-assigns ids and tracks live orders by id; it must store the engine-returned handle instead. Without this change the win cannot be measured on the macro workload.
+
+### 4. After The id Pool: Next Targets
+
+Once the slotmap lands and is validated, the next-largest cost center is the `std::map` price-level container (`get_or_create` 17.8% of cycles, the top branch-miss source):
+
+- **Tier A — pooled allocator for `std::map` (safe, do first).** Give the ordered map a free-list / pooled allocator so level create/destroy stops calling `operator new` / `malloc` / `cfree` (the allocator churn and rebalance cost the profile attributes to `emplace_hint` and `erase_best`). Keeps `std::map` semantics and **pointer stability** (`Order::parent_level` stays valid), so it is low risk.
+- **Tier B — structural replacement (deferred).** Only if Tier A leaves material `lower_bound` + rebalance cost: replace `std::map` with `absl::btree_map` or a hot contiguous structure. Both move values on rebalance and would invalidate `Order::parent_level`, so this first requires changing the ownership model (e.g. heap-allocate `PriceLevel` and store `PriceLevel*` in the container). This is the constraint flagged in the Phase 4 storage report; do not start it until Tier A is measured.
+- **Minor — `node_init` redundant stores.** Independent of the above; small.
+
+Each step is validated with a 10-trial production PMC comparison (`instructions_per_op`, `branch_miss_rate`, `cache_misses_per_op`) plus a re-run of the window-isolated `perf record` to confirm the targeted cost center actually shrinks.
+
+### Working Rule For Phase 5
+
+The ordered sequence is: **(1) replace the cancel-index hash map with a generational slotmap on the order pool** (largest lever, requires the engine-assigned-id contract and a benchmark change), then **(2) a pooled allocator for the `std::map` price levels**, then re-profile before considering any structural price-level replacement. Do not spend further effort optimizing the hash map in place — under the current id contract it is already at its ceiling, and under the new contract it is gone.

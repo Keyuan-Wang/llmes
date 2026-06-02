@@ -557,10 +557,15 @@ Full analysis is recorded in `report/phase5_macro_profiling_plan.md`.
 
 ### Production-Evidence-Ranked Optimization Plan
 
-- **Tier 1 (highest leverage, lowest risk):** eliminate the `id_to_order_` double-probe in `add_limit_order`; switch `pending_cancel_ids_` to an empty-guard + `absl::flat_hash_set`. Expected ~+6-9% macro.
-- **Tier 2a (safe):** give `std::map` a pooled / free-list allocator to remove level create/destroy `operator new` / `malloc` / `cfree` churn while keeping pointer stability (`Order::parent_level`).
-- **Tier 2b (deferred, structural):** replace `std::map` with `absl::btree_map` or a hot contiguous structure; requires changing the ownership model first because value-moving containers would invalidate `Order::parent_level`.
-- **Tier 3:** leave the cancel `find` / `erase` path alone (already tight, p99 60 ns).
+An earlier draft proposed merging the add-path `contains` + `emplace` into one `lazy_emplace` call. That idea was **withdrawn**: the dup-check runs before matching and the insert runs after, so they serve two different correctness purposes and cannot be merged without changing semantics; and `absl::flat_hash_map` ignores the iterator hint, so on the (always-miss) `add_rest` path the insert re-probes from scratch regardless. Under the current id contract (arbitrary external `uint64_t` id + reject-duplicate-before-match), the hash map's ~50% is essentially irreducible.
+
+The real lever is to **replace** the cancel-index hash map, not optimize it in place:
+
+- **Step 1 — Replace `id_to_order_` with a generational slotmap on the order pool (largest lever).** In a real venue the exchange gateway assigns the order id, so id assignment is engine-controlled and can be made dense. The `OrderPool` is already a contiguous `std::vector<Order>` slab, so `slot_index = &order - &pool_[0]` is free. A handle packs `{generation, slot_index}`: lookup becomes one array load (no hash, no probe), the add-path dup-check disappears (slot allocation is the uniqueness check), and a per-slot generation counter rejects stale handles (ABA safety after slot reuse). `id_to_order_` is deleted; `Order.id` is kept only for trade reporting. This recovers most of the ~50% cancel-index cost. Requires: deciding whether to drop `pending_cancel_ids_` (cancel-before-insert cannot occur with engine-issued handles), mandatory generation correctness, and a `bench_hft_macro` change to track engine-returned handles.
+- **Step 2 — Pooled allocator for the `std::map` price levels (safe).** Remove level create/destroy `operator new` / `malloc` / `cfree` churn while keeping pointer stability (`Order::parent_level`).
+- **Step 3 — Structural price-level replacement (deferred).** Only if Step 2 leaves material `lower_bound` + rebalance cost; replacing `std::map` with `absl::btree_map` or a contiguous structure first requires an ownership-model change because value-moving containers would invalidate `Order::parent_level`.
+
+Each step is validated with a 10-trial production PMC comparison plus a re-run of the window-isolated `perf record`.
 
 ## Current Status
 
@@ -571,5 +576,5 @@ As of the current repository state:
 - the `add_rest` stage-profiling feature was added and then **removed** as a non-viable measurement method (probe overhead dwarfed the probed region)
 - a window-isolated production `perf record` path was added (`PerfRecordControl` + `benchmark/scripts/run_hft_macro_perf_record.sh`) and cloud-validated
 - ChunkPool benchmark artifacts are recorded but the design is not the active baseline
-- the production profile shows the cancel-index hash map (~50% of macro cycles, with a redundant add-path double-probe) and the `std::map` level container (~24% of cycles, top branch-miss source) as the two ranked optimization targets
+- the production profile shows the cancel-index hash map (~50% of macro cycles) and the `std::map` level container (~24% of cycles, top branch-miss source) as the two cost centers; the planned response is to replace `id_to_order_` with a generational slotmap on the order pool, then add a pooled allocator to the `std::map` price levels
 - the latest profiling analysis is recorded in `report/phase5_macro_profiling_plan.md` (and the earlier `report/phase4_hft_macro_optimization_priority.md`)
