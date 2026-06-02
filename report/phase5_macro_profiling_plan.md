@@ -362,7 +362,7 @@ Merging these into a single `lazy_emplace` / `find_or_prepare_insert` (check the
 
 ### Finding 2 — `std::map` Level Container Is *Not* Cheap In A Long Run
 
-This **contradicts the earlier stage-profiling conclusion** (that `std::map` lookup is the cheapest stage at 63.89 cycles / 6.6% of add). In the production run, `get_or_create` is **35% of `add_limit_order`** (17.8% of all cycles) and the **single largest branch-miss source** in the engine:
+This **contradicts the earlier stage-profiling conclusion** (that `std::map` lookup is the cheapest add stage). In the production run, `get_or_create` is **35% of `add_limit_order`** (17.8% of all cycles) and the **single largest branch-miss source** in the engine:
 
 | `get_or_create` sub-cost | cycles % | branch-miss % |
 |---|---:|---:|
@@ -373,12 +373,23 @@ This **contradicts the earlier stage-profiling conclusion** (that `std::map` loo
 
 Plus `erase_best` level deletion (4.6% cycles), which carries its own `_Rb_tree_rebalance_for_erase` (1.2%) and `cfree` (~0.8%).
 
-**Why the contradiction?** The reconciliation is the workload length / level churn:
+**Why the contradiction? It is a measurement artifact, not a workload difference.** Both runs use the identical workload: same `Setup()`, same op mix (45 add / 48 cancel / 5 modify / 2 market), same price distribution. The divergence comes entirely from *how* each run measured, and the stage-profiling number was unreliable for two compounding reasons:
 
-- The stage-profiling run used `batch_size = 100,000` against a pre-warmed 100k-order book. Almost every price level already existed, so the measured batch rarely created or destroyed levels — the malloc + rebalance path was effectively not exercised.
-- The production `perf record` run used `batch_size = 1,000,000`. Over a long stream the best price drifts continuously, so price levels are **created and destroyed constantly**, exposing `operator new` / `malloc` / `cfree` churn and RB-tree rebalancing.
+1. **The instrumentation overhead dwarfed the thing being measured.** Stage profiling wrapped each of the 7 sub-stages of `add_limit_order` in a `__rdtsc()` + `steady_clock::now()` pair. That timer pair costs on the order of a hundred-plus cycles — comparable to or larger than the real per-stage cost. The proof is in the stage data itself: `node_init` (a 4-field struct assignment) reported **139 cycles**, `fifo_append` (a 4-pointer linked-list append) **141 cycles**, `pool_acquire` (a free-list pop) **139 cycles**. None of those operations genuinely cost ~140 cycles; the bulk of each number is the timer overhead. Because that overhead is roughly constant per stage, it **flattens the real spread** — the genuinely expensive `get_or_create` (malloc + RB-tree rebalance) ends up looking similar to trivial stages, and the genuinely cheap `level_lookup_existing` is the only one that slips below the overhead floor, which is exactly what created the false "lookup is cheapest" signal.
 
-The corrected conclusion: **whether the price-level container matters depends on run length and level churn.** For a short, pre-warmed batch it is invisible; for a realistic long continuous HFT stream it is ~24% of cycles and the top branch-miss contributor. The low PMC cache-miss rate still holds — the std::map cost is branch-heavy RB-tree manipulation and allocator work, **not** memory stalls.
+2. **The earlier conclusion also read its own data too narrowly.** It quoted only `level_lookup_existing` (63.89 cycles, 6.6% of add) and dismissed `level_create_new` as rare. Summed correctly, `get_or_create = level_lookup_existing + level_create_new = 63.89 + 40.98 = 104.87 cycles/add ≈ 10.9% of add` even in the distorted stage data. (A `count`-accounting bug, documented above, further hid the per-create cost by amortizing it across all adds.)
+
+So the honest comparison is **~11% (stage profiling) vs 35% (perf)**, not "6.6% vs 35%". The remaining ~3× gap is the flattening described in (1): perf hardware sampling has zero instrumentation overhead, so it resolves the true cost spread that the timer pairs smeared out.
+
+The corrected conclusion: **the `std::map` level container is a real cost center (~24% of macro cycles, top branch-miss source), and the production `perf record` profile is the authoritative measurement.** The low PMC cache-miss rate still holds — the std::map cost is branch-heavy RB-tree manipulation and allocator work, **not** memory stalls.
+
+### Stage Profiling Is Retired
+
+The consequence of the analysis above is that **per-sub-stage timing instrumentation is not a viable profiling method for this engine** and has been removed from the codebase (the `LLMES_PROFILE_ADD_REST_STAGES` feature, `add_rest_stage_profile.{hpp,cpp}`, the `order_book.cpp` / `bench_hft_macro.cpp` instrumentation, the CMake options, and `run_hft_macro_add_rest_stage_profile.sh`).
+
+The reason, stated as data: the operations being timed are ~5–40 ns each, while a `__rdtsc()` + `steady_clock::now()` pair is itself on the order of tens of ns. When the probe costs as much as the probed region, the measurement reports mostly its own overhead and **compresses** real differences toward a uniform value (every "cheap" stage reported ~140 cycles). Any conclusion drawn from the relative ordering of such stages is therefore untrustworthy — as demonstrated by the inverted "std::map is cheapest" result that the production profile overturned.
+
+Going forward, hot-path attribution uses **`perf record` with the window-isolated control FIFO** (this section) for cost-center and branch-miss attribution, and the existing **operation-level profiling** (`LLMES_PROFILE_HFT_MACRO_OPS`, which times whole operations with a single timer pair and whose op shares are corroborated by the perf function-level breakdown) for op-mix weighting. Sub-operation timing via inline instrumentation is no longer used.
 
 ### Revised Optimization Plan (production-evidence-ranked)
 
@@ -398,6 +409,6 @@ Combined Tier 1 + Tier 2a expected gain: ~+10–13% macro throughput. Crucially,
 The earlier rule ("do not introduce another storage redesign; the price index is not the constraint") is **revised**. The production profile shows two clear, data-backed targets:
 
 1. The redundant `id_to_order_` probe in the add path (structural, safe).
-2. The `std::map` level-create/destroy allocator + rebalance churn under a long continuous stream (start with a pooled allocator, keep pointer stability).
+2. The `std::map` level-create/destroy allocator + rebalance cost (start with a pooled allocator, keep pointer stability).
 
 The next code changes should be Tier 1 first, then Tier 2a, each validated with a 10-trial production PMC comparison (`instructions_per_op`, `branch_miss_rate`, `cache_misses_per_op`) plus a re-run of this window-isolated `perf record` to confirm the cost centers shrink as predicted.

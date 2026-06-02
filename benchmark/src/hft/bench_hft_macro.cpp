@@ -21,7 +21,6 @@
 #include "bench_common.hpp"
 
 #include "absl/container/flat_hash_map.h"
-#include "matching/add_rest_stage_profile.hpp"
 
 #include <algorithm>
 #include <array>
@@ -41,10 +40,6 @@
 
 #ifndef LLMES_PROFILE_HFT_MACRO_OP_PMCS
 #define LLMES_PROFILE_HFT_MACRO_OP_PMCS 0
-#endif
-
-#ifndef LLMES_PROFILE_ADD_REST_STAGES
-#define LLMES_PROFILE_ADD_REST_STAGES 0
 #endif
 
 #if LLMES_PROFILE_HFT_MACRO_OPS && (defined(__x86_64__) || defined(__i386__))
@@ -160,30 +155,6 @@ public:
                 std::cerr << "failed to enable hft_macro op PMC group\n";
                 return false;
             }
-#endif
-#if LLMES_PROFILE_ADD_REST_STAGES
-            class ScopedAddRestStageProfiling {
-            public:
-                explicit ScopedAddRestStageProfiling(bool enabled) noexcept
-                    : enabled_(enabled) {
-                    if (enabled_) {
-                        matching::SetAddRestStageProfileEnabled(true);
-                    }
-                }
-
-                ~ScopedAddRestStageProfiling() {
-                    if (enabled_) {
-                        matching::SetAddRestStageProfileEnabled(false);
-                    }
-                }
-
-            private:
-                bool enabled_ = false;
-            };
-
-            const ScopedAddRestStageProfiling add_rest_stage_scope(
-                add_rest_stage_profile_enabled_ &&
-                pending_[batch_idx].type == PendingOp::kLimitAdd);
 #endif
             const std::uint64_t c0 = ReadCycles();
             const auto t0 = Clock::now();
@@ -318,9 +289,6 @@ private:
     bool op_pmc_failed_ = false;
 #else
     bool op_pmc_failed_ = false;
-#endif
-#if LLMES_PROFILE_ADD_REST_STAGES
-    bool add_rest_stage_profile_enabled_ = false;
 #endif
 #endif
 
@@ -576,11 +544,6 @@ private:
         profile_args_ = args;
         measured_iters_done_ = 0;
         profile_emitted_ = false;
-
-#if LLMES_PROFILE_ADD_REST_STAGES
-        add_rest_stage_profile_enabled_ = true;
-        matching::ResetAddRestStageProfile();
-#endif
 
 #if LLMES_PROFILE_HFT_MACRO_OP_PMCS
         op_pmc_group_name_.clear();
@@ -850,9 +813,6 @@ private:
 #if LLMES_PROFILE_HFT_MACRO_OP_PMCS
         EmitPmcProfile(total_ops);
 #endif
-#if LLMES_PROFILE_ADD_REST_STAGES
-        EmitAddRestStageProfile();
-#endif
     }
 
 #if LLMES_PROFILE_HFT_MACRO_OP_PMCS
@@ -949,120 +909,6 @@ private:
                       << weighted_event_per_macro_op
                       << "\n";
                 }
-            }
-        }
-    }
-#endif
-
-#if LLMES_PROFILE_ADD_REST_STAGES
-    void EmitAddRestStageProfile() const {
-        const auto snapshot = matching::GetAddRestStageProfileSnapshot();
-        if (snapshot.add_rest_count == 0) return;
-
-        std::uint64_t total_ns = 0;
-        std::uint64_t total_cycles = 0;
-        for (const auto& stage : snapshot.stages) {
-            total_ns += stage.total_ns;
-            total_cycles += stage.total_cycles;
-        }
-
-        const char* out_path = std::getenv("LLMES_HFT_MACRO_ADD_REST_STAGE_PROFILE_OUT");
-        const bool write_csv = (out_path != nullptr && out_path[0] != '\0');
-        if (write_csv) {
-            benchmark_runner::EnsureCsvHeader(
-                out_path,
-                "scenario,version_tag,commit_sha,trial_id,seed,orders,levels,batch_size,"
-                "warmup_iters,iters,add_rest_count,stage,count,mean_ns,mean_cycles,"
-                "total_ns,total_cycles,stage_ns_share,stage_cycles_share");
-        }
-
-        std::cout << "macro_add_rest_stage_profile"
-                  << " scenario=" << Name()
-                  << " version_tag=" << profile_args_.version_tag
-                  << " commit_sha=" << profile_args_.commit_sha
-                  << " trial_id=" << profile_args_.trial_id
-                  << " seed=" << profile_args_.seed
-                  << " orders=" << profile_args_.orders
-                  << " levels=" << profile_args_.levels
-                  << " batch_size=" << profile_args_.batch_size
-                  << " warmup_iters=" << profile_args_.warmup_iters
-                  << " iters=" << profile_args_.iters
-                  << " add_rest_count=" << snapshot.add_rest_count
-                  << "\n";
-
-        for (std::size_t i = 0; i < matching::kAddRestStageCount; ++i) {
-            const auto stage_id = static_cast<matching::AddRestStage>(i);
-            const auto& stage = snapshot.stages[i];
-            const double mean_ns =
-                (stage.count > 0)
-                    ? static_cast<double>(stage.total_ns) / static_cast<double>(stage.count)
-                    : 0.0;
-            const double mean_cycles =
-                (stage.count > 0)
-                    ? static_cast<double>(stage.total_cycles) /
-                          static_cast<double>(stage.count)
-                    : 0.0;
-            const double stage_ns_share =
-                (total_ns > 0)
-                    ? static_cast<double>(stage.total_ns) / static_cast<double>(total_ns)
-                    : 0.0;
-            const double stage_cycles_share =
-                (total_cycles > 0)
-                    ? static_cast<double>(stage.total_cycles) /
-                          static_cast<double>(total_cycles)
-                    : 0.0;
-
-            std::cout << "macro_add_rest_stage_profile"
-                      << " stage=" << matching::AddRestStageName(stage_id)
-                      << " count=" << stage.count
-                      << " mean_ns=" << mean_ns
-                      << " mean_cycles=" << mean_cycles
-                      << " total_ns=" << stage.total_ns
-                      << " total_cycles=" << stage.total_cycles
-                      << " stage_ns_share=" << stage_ns_share
-                      << " stage_cycles_share=" << stage_cycles_share
-                      << "\n";
-
-            if (write_csv) {
-                std::ofstream f(out_path, std::ios::app);
-                f << Name()
-                  << ","
-                  << profile_args_.version_tag
-                  << ","
-                  << profile_args_.commit_sha
-                  << ","
-                  << profile_args_.trial_id
-                  << ","
-                  << profile_args_.seed
-                  << ","
-                  << profile_args_.orders
-                  << ","
-                  << profile_args_.levels
-                  << ","
-                  << profile_args_.batch_size
-                  << ","
-                  << profile_args_.warmup_iters
-                  << ","
-                  << profile_args_.iters
-                  << ","
-                  << snapshot.add_rest_count
-                  << ","
-                  << matching::AddRestStageName(stage_id)
-                  << ","
-                  << stage.count
-                  << ","
-                  << mean_ns
-                  << ","
-                  << mean_cycles
-                  << ","
-                  << stage.total_ns
-                  << ","
-                  << stage.total_cycles
-                  << ","
-                  << stage_ns_share
-                  << ","
-                  << stage_cycles_share
-                  << "\n";
             }
         }
     }
