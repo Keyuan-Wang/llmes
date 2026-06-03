@@ -567,19 +567,80 @@ The real lever is to **replace** the cancel-index hash map, not optimize it in p
 
 Each step is validated with a 10-trial production PMC comparison plus a re-run of the window-isolated `perf record`.
 
+## Phase 6a: Gateway-Owned Identity, No Hash on the Matching Hot Path
+
+Phase 6a implements the handle refactor planned in `report/phase6_engine_handle_refactor_plan.md`. The goal is not to delete order-id lookup from the **system**, but to **relocate** it out of the single-threaded matching core so the engine hot path never pays for a hash table.
+
+### Design
+
+**Boundary split:**
+
+| Layer | Responsibility |
+|---|---|
+| **Exchange gateway** (out of repo / ingress) | Accept `client_order_id`, enforce duplicate-id and cancel-before-add rules, maintain `client_order_id → OrderHandle` when clients do not echo the exchange token, forward **resolved handles** to the engine on cancel/modify |
+| **Matching core** (`OrderBook`) | Price-time matching only: pool-backed orders, intrusive FIFO per level, `std::map` price levels via `SideBook` |
+
+**Matching-core API after 6a:**
+
+- `add_limit_order(...)` still takes a business `order_id` for trade reporting; on rest it returns `AddResult::handle` (engine-issued pool slot index).
+- `cancel_order(OrderHandle)` / `modify_order(OrderHandle, ...)` — no `order_id` on the cancel/modify entry points.
+- Lookup is `OrderPool::resolve(handle)` → pointer into the contiguous pool (**O(1) index**, no hash probe).
+- `absl::flat_hash_map` **`id_to_order_` removed** from `OrderBook`; `pending_cancel_ids_` and in-core duplicate-id checks removed with gateway-owned validation.
+
+**Handle model (current code):** `OrderHandle = std::uint32_t` slot index into `OrderPool` (`types.hpp`). Production can later add a generation field for ABA safety when slots are reused; the performance mechanism is the slot index, not the hash map.
+
+**Honest scope:** If cancel still arrives keyed only by arbitrary `client_order_id`, **some** component must hash or map that id — Phase 6a moves that work to the gateway (parallelizable / shardable / pipelined off the critical path). When the client echoes the exchange-issued token, the gateway can decode the handle with **no** hash lookup. The matching-core benchmark measures only the engine contract: handles are already resolved before the timed window.
+
+### Implementation (key commits on `phase6a` / `master`)
+
+| Commit | Change |
+|---|---|
+| `eaa4eb6` | Replace `id_to_order_` with `OrderPool` handles; handle-based cancel/modify |
+| `0e3498d` | `bench_hft_macro` / `bench_overall`: precompute `target_handle` in `Setup()`; no id→handle map in `RunOp()` |
+| `71ed912` | Trim legacy micro-benches; focus benchmark suite on HFT paths |
+| `00f8f8e` | Rename `IntrusiveList` → `PriceLevel` (semantics unchanged) |
+
+Docs: `report/phase6_benchmark_handle_migration.md`, `report/phase6_engine_handle_refactor_plan.md`.
+
+### Benchmark contract
+
+- `bench_hft_macro` uses deterministic dual-build: replay the same op stream in `Setup()` to capture handles, rebuild the book, then time `RunOp()` with `cancel_order(op.target_handle)` only.
+- Putting `client_order_id → handle` inside `RunOp()` would **reintroduce** the hash cost into the measured path and invalidate comparisons — explicitly forbidden by the plan.
+
+### Measured outcome
+
+**Macro (cloud, Jun 2026):** `master` / Phase 6a vs `phase5-finale-devalidated` at `orders=100k`, `levels=100`, 10 trials — **29.3 vs 34.4 ns/op** (~17.6% faster); see `server_results/compare_master_vs_phase5_20260603_143852/`.
+
+**Production `perf record` on `master` @ `f77e051` (window-isolated RunOp):** `server_results/hft_macro_perf_record_master_20260603_153306/SUMMARY.md`
+
+| Operation | cycles % (Phase 6a) | cycles % (pre-handle, Phase 5 profile) |
+|---|---:|---:|
+| `add_limit_order` | 55.3% | ~50.5% |
+| `cancel_order` | **9.1%** | **~29.8%** |
+| `modify_order` | 10.7% | ~8.0% |
+
+- **No `flat_hash_map` / `contains` / `find` on the cancel index** appears in the Phase 6a profile.
+- `cancel_order` is mostly `resolve` + intrusive `erase` + pool `release`.
+- Dominant remaining cost inside add: **`std::map` `get_or_create`** (~28% of all `RunOp` cycles) — the next optimization target after 6a.
+
+### Conclusion
+
+Phase 6a closes the Phase 5 perf-record action item (“replace cancel-index hash map”): hash-table work for cancel/modify identity is **relocated to the gateway** (or avoided via exchange-issued tokens), and the **matching hot path** uses pool-index handles only. Price-level `std::map` work remains on the hot path and is the primary lever for Phase 6b+.
+
+**Branch tag:** `phase6a` points at this milestone (same tree as `master` at branch creation).
+
 ## Current Status
 
 As of the current repository state:
 
-- `master` is based on `phase4a`
+- **`phase6a`** branch tags the gateway/handle milestone; **`master`** continues from the same line
+- matching core: **no** `id_to_order_`; cancel/modify are handle-based; gateway owns id validation and id→handle mapping off the hot path
 - per-operation HFT macro profiling (`LLMES_PROFILE_HFT_MACRO_OPS`) is retained
 - the `add_rest` stage-profiling feature was added and then **removed** as a non-viable measurement method (probe overhead dwarfed the probed region)
-- a window-isolated production `perf record` path was added (`PerfRecordControl` + `benchmark/scripts/run_hft_macro_perf_record.sh`) and cloud-validated
+- window-isolated production `perf record` validated on post-handle `master` — see `server_results/hft_macro_perf_record_master_20260603_153306/`
 - ChunkPool benchmark artifacts are recorded but the design is not the active baseline
-- the production profile shows the cancel-index hash map (~50% of macro cycles) and the `std::map` level container (~24% of cycles, top branch-miss source) as the two cost centers; the planned response is to replace `id_to_order_` with a generational slotmap on the order pool, then add a pooled allocator to the `std::map` price levels
-- the latest profiling analysis is recorded in `report/phase5_macro_profiling_plan.md` (and the earlier `report/phase4_hft_macro_optimization_priority.md`)
-- Phase 6 (`OrderHandle`) is implemented on `master`; benchmarks migrated per `report/phase6_benchmark_handle_migration.md`
-- unified Phase 1–6 narrative + Jun 2026 devalidated `hft_macro` table: `report/phase_evolution_phase1_to_phase6.md`, CSV `server_results/hft_macro_cross_phase_summary_20260603.csv`
+- **next macro cost center:** `std::map` price-level `get_or_create` (~28% `RunOp` cycles in Phase 6a perf record), not the cancel hash map (removed)
+- unified Phase 1–6 narrative: `report/phase_evolution_phase1_to_phase6.md`, CSV `server_results/hft_macro_cross_phase_summary_20260603.csv`
 
 ## Jun 2026 Unified `hft_macro` Campaign (Devalidated + Phase 6)
 
