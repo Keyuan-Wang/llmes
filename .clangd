@@ -1,0 +1,9 @@
+CompileFlags:
+  # Prefer CMake-generated compile database from the standard build dir.
+  CompilationDatabase: build
+  # Fallback include paths for header-only parsing in IDE when compile DB
+  # is missing/incomplete (common before first configure).
+  Add:
+    - -Icore/matching_core/include
+    - -Ibuild/_deps/abseil-src
+    - -Ibuild/_deps/abseil-src/absl
