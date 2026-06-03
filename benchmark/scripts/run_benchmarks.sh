@@ -16,7 +16,7 @@ if (( DRY_RUN == 0 )); then
 	cmake --build "$ROOT/build" -j
 fi
 
-SCENARIOS_CSV="${SCENARIOS:-hft_add_near,hft_add_far,hft_cancel_hot,hft_cancel_cold,hft_modify_near,hft_cxl_miss,hft_market_small,hft_market_large}"
+SCENARIOS_CSV="${SCENARIOS:-hft_add_near,hft_add_far,hft_cancel_hot,hft_cancel_cold,hft_modify_near,hft_market_small,hft_market_large}"
 METRICS_CSV="${METRICS:-latency,pmc}"
 ORDERS_CSV="${ORDERS:-100,500,1000,5000,10000,50000,100000}"
 LEVELS_CSV="${LEVELS:-10,100,1000}"
