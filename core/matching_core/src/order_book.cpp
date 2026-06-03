@@ -38,7 +38,6 @@ ErrorCode OrderBook::cancel_order(std::uint64_t order_id) {
             for (auto it = queue.begin(); it != queue.end(); ++it) {
                 if (it->id == order_id) {
                     queue.erase(it);
-                    active_ids_.erase(order_id);
                     if (queue.empty()) {
                         book.erase(level_it);
                     }
@@ -53,7 +52,6 @@ ErrorCode OrderBook::cancel_order(std::uint64_t order_id) {
         return ErrorCode::Success;
     }
 
-    pending_cancel_ids_.insert(order_id);
     return ErrorCode::UnknownOrderId;
 }
 
@@ -69,7 +67,6 @@ AddResult OrderBook::modify_order(std::uint64_t order_id, Side side, std::int64_
     // A cancel-miss adds the id to pending_cancel_ids_, which would block the
     // subsequent add.  Clear it — modify overrides any prior cancel signal.
     if (cancel_code == ErrorCode::UnknownOrderId) {
-        pending_cancel_ids_.erase(order_id);
     }
 
     // Now add as a fresh limit order — both DuplicateOrderId and
@@ -90,17 +87,7 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
         return out;
     }
 
-    if (pending_cancel_ids_.contains(order_id)) {
-        out.code = ErrorCode::PendingCancelExists;
-        out.remaining_quantity = quantity;
-        return out;
-    }
 
-    if (active_ids_.contains(order_id)) {
-        out.code = ErrorCode::DuplicateOrderId;
-        out.remaining_quantity = quantity;
-        return out;
-    }
 
     std::uint64_t remaining = quantity;
 
@@ -127,7 +114,6 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
                 out.filled_quantity += fill;
 
                 if (maker.quantity == 0) {
-                    active_ids_.erase(maker.id);
                     queue.pop_front();
                 }
             }
@@ -158,7 +144,6 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
         asks_[price].push_back(resting);
     }
 
-    active_ids_.insert(order_id);
     out.code = ErrorCode::Success;
     return out;
 }
@@ -178,17 +163,7 @@ AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::ui
         return out;
     }
 
-    if (pending_cancel_ids_.contains(order_id)) {
-        out.code = ErrorCode::PendingCancelExists;
-        out.remaining_quantity = quantity;
-        return out;
-    }
 
-    if (active_ids_.contains(order_id)) {
-        out.code = ErrorCode::DuplicateOrderId;
-        out.remaining_quantity = quantity;
-        return out;
-    }
 
     std::uint64_t remaining = quantity;
 
@@ -209,7 +184,6 @@ AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::ui
                 out.filled_quantity += fill;
 
                 if (maker.quantity == 0) {
-                    active_ids_.erase(maker.id);
                     queue.pop_front();
                 }
             }
