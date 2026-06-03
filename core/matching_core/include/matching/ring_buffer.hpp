@@ -22,7 +22,7 @@ public:
     [[nodiscard]] std::uint64_t best_price() { return static_cast<std::uint64_t>(best_price_); }
     // return the best price level
     [[nodiscard]] PriceLevel* best_price_level() {
-        return (best_price_ == kInvalid) ? nullptr : &ring_buffer_[best_price_idx_].level;
+        return (best_price_ == kInvalid) ? nullptr : &ring_buffer_[best_price_idx_].level.get();
     }
     // is price a better price than best price?
     [[nodiscard]] inline bool is_better(std::int64_t a) const {
@@ -53,7 +53,7 @@ public:
 
     // find a slot with price, before calling this function, it's called take because this operation will take orders from the pricelevel
     // one must ensure the price at ring_buffer_[idx] is up to date (is_up_to_date())
-    [[nodiscard]] PriceLevel* take(std::size_t idx) const noexcept {return ring_buffer_[idx].level;}
+    [[nodiscard]] PriceLevel* take(std::size_t idx) const noexcept {return ring_buffer_[idx].level.get();}
     // replace ring_buffer_[idx] with new slot, return the old ring_buffer_[idx]
     // this function must be called when is_up_to_date() returns false
     [[nodiscard]] Slot replace(std::int64_t price, std::unique_ptr<PriceLevel> level, std::size_t idx) noexcept {
