@@ -1,5 +1,7 @@
 #pragma once
 
+#include <map>
+
 #include "types.hpp"
 #include "ring_buffer.hpp"
 
