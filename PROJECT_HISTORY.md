@@ -12,11 +12,15 @@ The notes below are based on:
 - `report/phase4_price_level_storage_strategy.md`
 - `report/phase4_hft_macro_optimization_priority.md`
 - `report/phase5_macro_profiling_plan.md`
+- `report/phase7_hot_ring_cold_map_design.md`
+- `report/phase7_benchmark_results.md`
 - `benchmark/results/campaign_20260601_1319/`
 - `benchmark/results/hft_macro_perf_record_cloud_20260601/`
 - `server_results/macro_op_profile_cloud_t1/`
 - `server_results/hft_macro_perf_record_master_20260603_153306/`
 - `server_results/compare_master_vs_phase6a_20260603_173405/`
+- `server_results/compare_master_vs_phase6a_20260605_182321/`
+- `server_results/master_ring_size_sweep_trials30_20260605_185129/`
 
 ## Phase 1: Correctness-First Baseline
 
@@ -635,17 +639,20 @@ Phase 6a closes the Phase 5 perf-record action item (“replace cancel-index has
 
 As of the current repository state:
 
-- **`phase6a`** branch tags the gateway/handle milestone; **`master`** continues from the same line
+- **`phase6a`** branch tags the gateway/handle milestone; **`master`** has advanced to Phase 7
 - matching core: **no** `id_to_order_`; cancel/modify are handle-based; gateway owns id validation and id→handle mapping off the hot path
+- price-level storage on `master`: `CachedSideBook` with a 16-slot hot ring buffer plus cold `std::map`
+- `RingSize=16` is the current chosen configuration after a 30-trial sweep of 8/16/32/64
 - per-operation HFT macro profiling (`LLMES_PROFILE_HFT_MACRO_OPS`) is retained
 - the `add_rest` stage-profiling feature was added and then **removed** as a non-viable measurement method (probe overhead dwarfed the probed region)
 - window-isolated production `perf record` validated on post-handle `master` — see `server_results/hft_macro_perf_record_master_20260603_153306/`
 - ChunkPool benchmark artifacts are recorded but the design is not the active baseline
-- **next macro cost center:** `std::map` price-level `get_or_create` (~28% `RunOp` cycles in Phase 6a perf record), not the cancel hash map (removed)
 - PMR price-level node pooling was tested after Phase 6a; it reduced cache misses but increased instruction count and regressed macro latency, so it is not the active direction
+- Phase 7 replaces the former `std::map` hot `get_or_create` path with O(1) ring indexing while preserving a cold ordered path for arbitrary prices
 - unified Phase 1–6 narrative: `report/phase_evolution_phase1_to_phase6.md`, CSV `server_results/hft_macro_cross_phase_summary_20260603.csv`
+- Phase 7 narrative and benchmark report: `report/phase7_hot_ring_cold_map_design.md`, `report/phase7_benchmark_results.md`
 
-## Jun 2026 Unified `hft_macro` Campaign (Devalidated + Phase 6)
+## Jun 2026 Unified `hft_macro` Campaign (Devalidated + Phase 6/7)
 
 Cloud runner: `benchmark/scripts/run_remote_compare.sh` on Hetzner CCX23.
 
@@ -668,9 +675,10 @@ Headline `hft_macro` at `orders=100000`, `levels=100`, 10 trials (devalidated un
 | p4a-deval | 39.3 | 25.5M |
 | p4fin-deval | 40.2 | 24.9M |
 | phase5-deval | 34.4 | 29.1M |
-| master (Phase 6) | 29.3 | 34.1M |
+| phase6a / master snapshot | 29.3 | 34.1M |
+| master (Phase 7) | 24.2 | 41.3M |
 
-Phase 1–2a rows are O(N)-cancel bound and not comparable to 2b+ for ranking. Phase 6 uses handle-aware benchmark scope (handles resolved in `Setup()`).
+Phase 1–2a rows are O(N)-cancel bound and not comparable to 2b+ for ranking. Phase 6 uses handle-aware benchmark scope (handles resolved in `Setup()`). Phase 7 adds the hot ring / cold map price-level storage on top of the handle-based core.
 
 ## Phase 6b Candidate: PMR Price-Level Node Pool (Rejected)
 
@@ -733,3 +741,105 @@ The Phase 6b+ direction is therefore:
 - keep a cold ordered path only if the design still needs arbitrary out-of-window prices
 
 Unless new evidence shows a real production p99 memory-stall problem, future optimization work should not target cache misses as the primary objective. Cache-locality work is only justified as a side effect of a structure that also reduces instructions, not as the main design goal.
+
+## Phase 7: Hot Ring Buffer + Cold Map Price-Level Storage
+
+Phase 7 implements the ring-buffer direction identified after the PMR rejection. The goal is to remove branchy `std::map` lookup from the dominant near-best resting-add path while retaining correctness for arbitrary price drift in `hft_macro`.
+
+### Design
+
+Each side book is now:
+
+```text
+CachedSideBook<IsAsk>
+├── RingBuffer<IsAsk> hot_
+└── std::map<price, std::unique_ptr<PriceLevel>, PriceCompare<IsAsk>> cold_
+```
+
+Important implementation choices:
+
+- `OrderBook` still uses the same side-book interface: `empty()`, `best_price()`, `best_level()`, `get_or_create(price)`, and `erase_best()`.
+- Hot prices are addressed by directed rank from the current best: ask uses `price - best`, bid uses `best - price`.
+- `RingSize` is currently 16. The physical slot index is `(anchor + rank) & (RingSize - 1)`.
+- `RingBuffer` tracks live slots with `live_mask_`, and the mask type is selected at compile time through `uint_from_size<RingSize>` (`uint16_t` for the current configuration).
+- `next_live_offset()` uses `std::rotr` plus `std::countr_zero` to find the next live price level after the best is drained.
+- `PriceLevel` ownership is stored in `std::unique_ptr`; moving a level between hot and cold does not move the pointee, so `Order::parent_level` remains valid.
+
+The current implementation keeps a strict invariant:
+
+```text
+cold_ only contains prices outside the current hot window.
+```
+
+When the best price advances toward worse prices, `erase_best()` promotes cold entries that newly fall inside the hot window. Earlier discussion considered lazy addition / resident-cache semantics, but that direction is not currently adopted. The reason is workload evidence: the `erase_best()` / matching path is low-frequency (about 2% in the current macro mix), while strict hot-window maintenance keeps the dominant `get_or_create()` path simple and avoids duplicate same-price levels across hot and cold tiers.
+
+### Implementation Milestones
+
+| Commit | Change |
+|---|---|
+| `f283b3d` | First ring-buffer implementation |
+| `c8adf9b` | First `CachedSideBook` WIP integration |
+| `bc70159` | Finished hot ring buffer + cold map design |
+| `fc971b9` | `live_mask_` type trait and bit-manipulation cleanup |
+| `1096ad5` | Phase 7 benchmark report |
+
+### Benchmark Result: Phase 7 vs Phase 6a
+
+Cloud run:
+
+```text
+server_results/compare_master_vs_phase6a_20260605_182321/
+```
+
+Configuration: `hft_macro`, `orders=100000`, `levels=100`, `batch_size=100000`, 10 trials.
+
+| Version | Meaning | avg ns/op | ops/s | instr/op | branch miss/op |
+|---|---|---:|---:|---:|---:|
+| `phase6a` @ `d778e4f` | handle-based core, `std::map` side book | 30.30 | 33.0M | 183.6 | 2.17 |
+| `master` @ `00e6470` | hot ring + cold map | 24.26 | 41.2M | 177.3 | 1.48 |
+
+Main result:
+
+- latency improved by about 19.9%
+- throughput improved by about 24.9%
+- branch misses dropped by about 32.2%
+- CPI dropped by about 15.1%
+
+The speedup is primarily a reduction in branchy ordered-map work and pointer-chasing on the near-best add path. Cache misses rose slightly, but the instruction-path and CPI wins dominate.
+
+### RingSize Sweep
+
+A 30-trial sweep tested `RingSize = 8, 16, 32, 64` at a single commit:
+
+```text
+server_results/master_ring_size_sweep_trials30_20260605_185129/
+```
+
+| RingSize | avg ns/op | 95% CI | ops/s |
+|---:|---:|---|---:|
+| 16 | 24.091 | [23.998, 24.184] | 41.5M |
+| 32 | 24.100 | [24.015, 24.186] | 41.5M |
+| 64 | 24.245 | [24.145, 24.344] | 41.2M |
+| 8 | 25.057 | [24.967, 25.148] | 39.9M |
+
+Conclusion:
+
+- `RingSize=8` is too small for the current HFT macro locality profile and is about 4% slower.
+- `RingSize=16` and `RingSize=32` are statistically indistinguishable.
+- `RingSize=64` shows a weak regression trend, likely due to extra instruction/codegen cost rather than cache footprint.
+- `RingSize=16` is the current choice because it matches 32's performance with half the ring footprint.
+
+### Current Interpretation
+
+Phase 7 validates the Phase 6b+ hypothesis: the next useful lever after handle-based identity was not allocator pooling, but removing ordered-map work from the near-best price-level path.
+
+Current headline `hft_macro` result:
+
+| Phase | avg ns/op | ops/s | Key change |
+|---|---:|---:|---|
+| Phase 6a | 30.3 | 33.0M | handle-based cancel, no in-core id hash |
+| Phase 7 | 24.2 | 41.3M | hot ring buffer + cold map |
+
+From Phase 1 to Phase 7, the project records roughly `2170ns/op -> 24.2ns/op`, about a 90x throughput improvement on the headline macro workload.
+
+The next step should be a fresh Phase 7 production profile before choosing another optimization target. The prior Phase 6a profile is no longer authoritative because the `std::map get_or_create` bottleneck it identified has now been structurally replaced.

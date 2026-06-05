@@ -1,6 +1,6 @@
 # llmes — Low-Latency Matching & Execution Simulator
 
-A C++20 order-matching engine evolved incrementally from a correctness-first baseline through data-structure optimization and HFT workload profiling.
+A C++20 order-matching engine evolved incrementally from a correctness-first baseline through data-structure optimization, handle-based identity, hot price-level caching, and HFT workload profiling.
 
 ---
 
@@ -8,28 +8,60 @@ A C++20 order-matching engine evolved incrementally from a correctness-first bas
 
 | Area | Status |
 |------|--------|
-| Matching core | Done |
-| Data structure | `std::map<price, PriceLevel>` + `absl::flat_hash_map<id, Order*>` (phase2e) |
+| Matching core | Phase 7 complete |
+| Price-level storage | `CachedSideBook`: 16-slot hot ring buffer + cold `std::map` |
+| Order storage | Pool-backed intrusive `PriceLevel` queues |
+| Order identity | Engine-issued `OrderHandle`; no id hash table on the matching hot path |
 | Order types | Limit / Market / Cancel / Modify |
 | Benchmark suite | 6 legacy + 8 HFT scenarios |
-| Hash table engineering | phase2b (`std::unordered_map`) → 2c (open-addressing) → 2d (Robin Hood) → **2e (`absl::flat_hash_map`)** |
-| HFT macro benchmark | Zero-Intelligence model with realistic order flow |
+| Primary benchmark | `hft_macro` Zero-Intelligence model with realistic order flow |
+| Current headline | **24.2 ns/op**, **41.3M ops/s** on cloud `hft_macro` |
 | Market Data / Execution / Risk | Not started |
 
 ---
 
-## Hash Table Engineering Journey
+## Historical Hash Table Engineering Journey
 
-The cancel path is the dominant operation in any realistic order-book workload. The engine evolved through five phases of hash-table optimization:
+The cancel path is the dominant operation in realistic order-book workloads. Earlier phases optimized arbitrary external-order-id lookup inside the matching core:
 
 | Phase | ID Index | Macro ops/s | vs 2b | Key Limitation |
 |---|---|---|---|---|
-| **2b** | `std::unordered_map` | 11.0M | baseline | Node-based: pointer chase, cache- unfriendly |
+| **2b** | `std::unordered_map` | 11.0M | baseline | Node-based: pointer chase, cache-unfriendly |
 | 2c | Custom open-addressing + tombstones | 7.8M | −29% | Tombstone buildup degrades lookup under cancel-heavy load |
 | 2d | Robin Hood + backward-shift deletion | 7.8M | −29% | Probe chains regress under HFT spatial concentration |
 | **2e** | `absl::flat_hash_map` (Swiss Table) | **11.9M** | **+8%** | — |
 
-**Winner: phase2e** — the Swiss-table `absl::flat_hash_map` outperforms hand-rolled open-addressing by 52% and the baseline `std::unordered_map` by 8% under realistic HFT order flow. See `report/phase2b_to_phase_2e_comparison.md` for full analysis.
+**Phase 2e was the in-core hash-table winner** — the Swiss-table `absl::flat_hash_map` outperformed hand-rolled open-addressing by 52% and the baseline `std::unordered_map` by 8% under realistic HFT order flow.
+
+Phase 6a later moved identity resolution out of the matching hot path entirely. The gateway owns external `client_order_id` validation and id-to-handle mapping; the matching core receives `OrderHandle` values and resolves them by direct pool index.
+
+---
+
+## Current Engine: Phase 7
+
+Phase 7 targets the remaining post-handle bottleneck: price-level lookup on resting adds. The previous `std::map<price, PriceLevel>` `get_or_create()` path was branchy and pointer-heavy. The current design keeps arbitrary-price correctness by splitting each side book into:
+
+```text
+CachedSideBook<IsAsk>
+├── RingBuffer<IsAsk> hot_   # 16 near-best ticks, O(1) index arithmetic
+└── std::map<price, unique_ptr<PriceLevel>> cold_
+```
+
+Key properties:
+
+- Hot-path near-best level lookup is `rank(price)` + `idx_of(rank)` + one slot price check.
+- `live_mask_` uses a compile-time-selected unsigned type (`uint16_t` for `RingSize=16`) so `std::rotr` and `std::countr_zero` find the next live level cheaply.
+- `PriceLevel` ownership moves between ring slots and the cold map via `unique_ptr`; the pointee address is stable, so `Order::parent_level` remains valid.
+- The implementation keeps a strict hot-window invariant: cold prices are outside the current hot window. Lazy resident-cache variants were not adopted because `erase_best()` / matching is a low-frequency path in the current macro workload, while the strict invariant keeps `get_or_create()` simple.
+
+Cloud `hft_macro` result at `orders=100000`, `levels=100`, `batch_size=100000`, 10 trials:
+
+| Version | avg ns/op | ops/s | Change |
+|---|---:|---:|---:|
+| Phase 6a (`std::map`, handle-based) | 30.30 | 33.0M | baseline |
+| **Phase 7 (hot ring + cold map)** | **24.26** | **41.2M** | **−19.9% latency** |
+
+RingSize sweep (30 trials) found `RingSize=16` and `32` statistically equivalent, `8` too small, and `64` slightly worse. The project keeps `RingSize=16`.
 
 ---
 
@@ -134,10 +166,21 @@ Pool-based `PriceLevel` replaces `std::list`: 22–38% fewer instructions per op
 
 Under the HFT macro benchmark (48% cancel / 45% add), custom open-addressing (2c/2d) regresses 29% — tombstones and probe chains hurt cancel-heavy access. `absl::flat_hash_map` (2e) leads at 11.9M ops/s: 52% ahead of 2c/2d and 8% ahead of 2b.
 
+### Phase 6a (Gateway-Owned Handles)
+
+The matching core stopped resolving arbitrary external ids. Cancels and modifies now take `OrderHandle`, resolving directly into the order pool. This removed the cancel-index hash table from the measured hot path and improved `hft_macro` from 34.4 ns/op to about 30.3 ns/op on the comparable cloud run.
+
+### Phase 7 (Hot Ring + Cold Map)
+
+The remaining hot `std::map` price-level lookup was replaced with a near-best ring cache plus cold ordered map. On `hft_macro`, Phase 7 reaches about 24.2 ns/op / 41.3M ops/s: a further 20% latency reduction over Phase 6a and roughly 90× throughput improvement over the Phase 1 baseline.
+
 Full reports:
 - `report/phase1_vs_phase2_report.md` — Phase 1 → 2a → 2b comparison
 - `report/phase2b_to_phase_2e_comparison.md` — Hash table engineering (2b–2e)
 - `report/phase3_hft_benchmark_design.md` — HFT benchmark design
+- `report/phase6_engine_handle_refactor_plan.md` — gateway-owned identity and engine handles
+- `report/phase7_hot_ring_cold_map_design.md` — hot ring + cold map design
+- `report/phase7_benchmark_results.md` — Phase 7 benchmark results and RingSize sweep
 
 ---
 
@@ -150,6 +193,8 @@ llmes/
 ├── core/matching_core/
 │   ├── include/matching/
 │   │   ├── order_book.hpp          # OrderBook class
+│   │   ├── cached_order_book.hpp   # hot ring + cold map side book
+│   │   ├── ring_buffer.hpp         # fixed-size near-best price ring
 │   │   ├── price_level.hpp         # Intrusive doubly-linked list per price
 │   │   ├── order_pool.hpp          # Pre-allocated order pool
 │   │   └── types.hpp               # Order, Trade, AddResult, ErrorCode
@@ -162,10 +207,10 @@ llmes/
 │   ├── CMakeLists.txt
 │   ├── src/
 │   │   ├── benchmark_runner.hpp    # IBenchScenario interface
+│   │   ├── benchmark_runner.cpp    # measurement runner
 │   │   ├── bench_common.hpp        # PrefillSellBook, PrefillHftBook, utilities
 │   │   ├── legacy/                 # 6 legacy benchmarks
 │   │   └── hft/                    # 8 HFT benchmarks (micro + macro)
-│   ├── runner/benchmark_runner.cpp
 │   ├── scripts/
 │   │   ├── run_benchmarks.sh
 │   │   ├── merge_benchmark_metrics.py
@@ -185,6 +230,8 @@ llmes/
 - **Phase 2b**: O(1) cancel index transforms the engine for cancel-dominated workloads. The trade-off (hash-map overhead on every match) is acceptable given 97% cancellation in real markets.
 - **Phase 2e**: `absl::flat_hash_map`'s Swiss-table design handles HFT spatial locality better than both `std::unordered_map` and hand-rolled open-addressing.
 - **Phase 3**: HFT benchmarks replace the original ad-hoc workload mix with empirically grounded order flow: exponential depth decay, spatial concentration at the best price, cancel clusters, and a Zero-Intelligence macro model.
+- **Phase 6a**: Gateway-owned identity moves external id validation and id-to-handle mapping out of the matching core; cancel/modify use pool-index handles.
+- **Phase 7**: Near-best prices use a 16-slot ring buffer; arbitrary out-of-window prices remain in a cold `std::map`.
 
 ---
 
@@ -192,11 +239,11 @@ llmes/
 
 | Function | Average | Notes |
 |---|---|---|
-| `cancel_order()` | O(1) | Hash index via `id_to_order_` + intrusive-list erase |
-| `add_limit_order()` | O(K + log P) | Match K makers; insert into `std::map` level (log P) |
-| `add_market_order()` | O(K) | Match only; no remainder |
+| `cancel_order()` | O(1) | Resolve `OrderHandle` by pool index + intrusive-list erase |
+| `add_limit_order()` | O(K + 1 hot / log P cold) | Match K makers; near-best rest uses ring index, out-of-window rest uses cold map |
+| `add_market_order()` | O(K + L) | Match K makers and drain L price levels |
 
-N = total resting orders, P = price levels, K = makers matched.
+N = total resting orders, P = cold price levels, K = makers matched, L = price levels drained.
 
 ---
 
@@ -205,5 +252,9 @@ N = total resting orders, P = price levels, K = makers matched.
 1. **Phase 1** ✓ — Functional core + tests + benchmark harness
 2. **Phase 2** ✓ — Intrusive queue + O(1) cancel index + hash table engineering
 3. **Phase 3** ✓ — HFT micro + macro benchmarks, realistic workload modeling
-4. Phase 4 — SoA, cache alignment, pmr, advanced profiling (LLC, front-end stalls, roofline)
-5. Market data, execution, risk, tslib, lfutils
+4. **Phase 4** ✓ — Price-level storage strategy and ChunkPool experiment
+5. **Phase 5** ✓ — Production profiling with window-isolated `perf record`
+6. **Phase 6** ✓ — Gateway-owned identity and handle-based matching core
+7. **Phase 7** ✓ — Hot ring buffer + cold map price-level storage
+8. Phase 8 — Re-profile Phase 7 and choose the next bottleneck
+9. Market data, execution, risk, tslib, lfutils
