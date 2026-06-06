@@ -2,6 +2,7 @@
 
 #include "price_level.hpp"
 
+#include <cassert>
 #include <vector>
 
 namespace matching {
@@ -28,7 +29,14 @@ public:
     explicit PriceLevelPool(std::size_t capacity);
 
     /** @return Pointer to a reset-ready level, or asserts if the pool is exhausted. */
-    [[nodiscard]] PriceLevel* acquire();
+    [[nodiscard]] [[gnu::always_inline]] inline PriceLevel* acquire() {
+        assert(free_head_ != nullptr && "PriceLevelPool exhausted");
+
+        Slot* slot = free_head_;
+        free_head_ = slot->next;
+
+        return &(slot->level);
+    }
 
     /**
      * @brief Return an empty level to the freelist.

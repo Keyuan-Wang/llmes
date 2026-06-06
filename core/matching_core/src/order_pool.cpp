@@ -12,18 +12,6 @@ OrderPool::OrderPool(std::size_t capacity) : pool_(capacity) {
     }
 }
 
-OrderHandle OrderPool::acquire() {
-    if (!free_head_)    return kInvalidHandle;
-
-    Order* o = free_head_;
-    free_head_ = o->next;
-
-    o->prev = nullptr;
-    o->next = nullptr;
-
-    return static_cast<OrderHandle>(index_of(o));
-}
-
 void OrderPool::release(Order* o) {
     o->next = free_head_;
     free_head_ = o;
