@@ -1,7 +1,6 @@
 #include "matching/occupancy_tree.hpp"
 
 #include <bit>
-#include <optional>
 
 
 namespace matching {
