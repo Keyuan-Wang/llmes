@@ -14,7 +14,7 @@
 #include "types.hpp"
 #include "price_level.hpp"
 #include "order_pool.hpp"
-#include "cached_order_book.hpp"
+#include "array_order_book.hpp"
 
 namespace matching {
 /**
@@ -122,8 +122,8 @@ public:
     ErrorCode cancel_order(OrderHandle h);
 
 private:
-    CachedSideBook<false> bids_;   ///< Bid price levels (best bid at @c begin()).
-    CachedSideBook<true> asks_;   ///< Ask price levels (best ask at @c begin()).
+    ArraySideBook<false> bids_;   ///< Bid price levels (best bid at @c begin()).
+    ArraySideBook<true> asks_;   ///< Ask price levels (best ask at @c begin()).
 
     OrderPool pool_;
 

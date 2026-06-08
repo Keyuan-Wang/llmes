@@ -17,9 +17,14 @@ public:
     void clear(std::size_t bit) noexcept;
 
     template <bool IsAsk>
-    std::optional<std::size_t> next_from(std::size_t start_bit) const noexcept {
+    std::size_t next_best(std::size_t start_bit) const noexcept {
         if constexpr (IsAsk)    return find_next_set(0, start_bit); // ask book, next best price is larger
         else                    return find_prev_set(0, start_bit); // bid book, next best price is smaller
+    }
+
+    // if this book is empty or not
+    [[nodiscard]] bool empty() const noexcept {
+        return levels_.empty() || levels_.back()[0] == 0;
     }
 
 private:

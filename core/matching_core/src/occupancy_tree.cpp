@@ -92,13 +92,11 @@ std::size_t OccupancyTree::find_next_set(std::size_t level, std::size_t start_bi
     }
 
     // whole book empty, this will never happen in the benchmark case
-    assert(level < levels_.size());
+    assert(level + 1 < levels_.size());
+    assert(word_idx + 1 < bit_counts_[level + 1]);
 
     // if not found, go to next level and find the word idx
     std::size_t next_word_idx = find_next_set(level + 1, word_idx + 1);
-
-    // whole book empty, this will never happen in the benchmark case
-    assert(next_word_idx);
 
     word = levels_[level][next_word_idx];
     assert(word != 0);
@@ -132,16 +130,15 @@ std::size_t OccupancyTree::find_prev_set(std::size_t level, std::size_t start_bi
     }
 
     // whole book empty, this will never happen in the benchmark case
-    assert(level < levels_.size());
+    assert(level + 1 < levels_.size());
+    assert(word_idx > 0);
 
     // if not found, go to next level and find the word idx
     std::size_t prev_word_idx = find_prev_set(level + 1, word_idx - 1);
 
-    // whole book empty, this will never happen in the benchmark case
-    assert(prev_word_idx);
-
     word = levels_[level][prev_word_idx];
     assert(word != 0);
+
 
     const std::size_t found = prev_word_idx * kWordBits + (kWordBits - 1 - static_cast<std::size_t>(std::countl_zero(word)));
 
