@@ -126,6 +126,18 @@ private:
     CachedSideBook<true> asks_;   ///< Ask price levels (best ask at @c begin()).
 
     OrderPool pool_;
+
+    template <Side S>
+    [[gnu::always_inline]] auto& opposite_book() {
+        if constexpr (S == Side::Buy)   return asks_;
+        else                            return bids_;
+    };
+
+    template <Side S>
+    std::uint64_t matching_engine_limit(AddResult& out, std::uint64_t order_id, std::int64_t price, std::uint64_t quantity);
+
+    template <Side S>
+    std::uint64_t matching_engine_market(AddResult& out, std::uint64_t order_id, std::uint64_t quantity);
 };
 
 }  // namespace matching

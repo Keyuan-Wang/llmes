@@ -23,11 +23,10 @@ namespace {
  * @param best_opposite_price   Best price on the opposite book (lowest ask or highest bid).
  * @return True if at least one share can match at @p best_opposite_price.
  */
-bool can_cross_limit(Side taker_side, std::int64_t limit_price, std::int64_t best_opposite_price) {
-    if (taker_side == Side::Buy) {
-        return limit_price >= best_opposite_price;
-    }
-    return limit_price <= best_opposite_price;
+template <Side S>
+inline bool can_cross_limit(std::int64_t limit_price, std::int64_t best_opposite_price) {
+    if constexpr (S == Side::Sell)  return limit_price <= best_opposite_price;  // ask book
+    else                            return limit_price >= best_opposite_price;  // bid book
 }
 
 }  // namespace
@@ -72,50 +71,14 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
         return out;
     }
 
-    std::uint64_t remaining = quantity;
-
-    // Consume opposite-side liquidity while the limit price permits crossing.
-    auto match_against = [&](auto& opposite_book) {
-        while (remaining > 0 && !opposite_book.empty()) {
-            const std::int64_t best_price = opposite_book.best_price();
-            if (!can_cross_limit(side, price, best_price)) {
-                break;
-            }
-
-            auto& price_level = opposite_book.best_level();
-
-            while (remaining > 0 && !price_level.empty()) {
-                Order& maker = price_level.front();
-
-                const std::uint64_t fill = std::min(remaining, maker.quantity);
-
-                out.trades.emplace_back(order_id, maker.id, maker.price, fill);
-
-                maker.quantity -= fill;
-                remaining -= fill;
-                out.filled_quantity += fill;
-
-                if (maker.quantity == 0) {
-                    Order* maker_ptr = &maker;
-                    price_level.erase(*maker_ptr);
-                    pool_.release(maker_ptr);
-                }
-            }
-            
-            if (price_level.empty())
-                opposite_book.erase_best();
-        }
-    };
 
     if (side == Side::Buy) {
-        match_against(asks_);
+        out.remaining_quantity = matching_engine_limit<Side::Buy>(out, order_id, price, quantity);
     } else {
-        match_against(bids_);
+        out.remaining_quantity = matching_engine_limit<Side::Sell>(out, order_id, price, quantity);
     }
 
-    out.remaining_quantity = remaining;
-
-    if (remaining == 0) {
+    if (out.remaining_quantity == 0) {
         out.code = ErrorCode::Success;
         return out;
     }
@@ -132,7 +95,7 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
     // set node
     node->id = order_id;
     node->price = price;
-    node->quantity = remaining;
+    node->quantity = out.remaining_quantity;
     node->timestamp = timestamp;
     node->prev = nullptr;
     node->next = nullptr;
@@ -167,50 +130,90 @@ AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::ui
         return out;
     }
 
-    std::uint64_t remaining = quantity;
-
-    auto match_against = [&](auto& opposite_book) {
-        while (remaining > 0 && !opposite_book.empty()) {
-            auto& price_level = opposite_book.best_level();
-
-            while (remaining > 0 && !price_level.empty()) {
-                Order& maker = price_level.front();
-
-                const std::uint64_t fill = std::min(remaining, maker.quantity);
-
-                out.trades.emplace_back(order_id, maker.id, maker.price, fill);
-
-                maker.quantity -= fill;
-                remaining -= fill;
-                out.filled_quantity += fill;
-
-                if (maker.quantity == 0) {
-                    Order* maker_ptr = &maker;
-                    price_level.erase(*maker_ptr);
-                    pool_.release(maker_ptr);
-                }
-            }
-
-            if (price_level.empty())
-                opposite_book.erase_best();
-        }
-    };
 
     if (side == Side::Buy) {
-        match_against(asks_);
+        out.remaining_quantity = matching_engine_market<Side::Buy>(out, order_id, quantity);
     } else {
-        match_against(bids_);
+        out.remaining_quantity = matching_engine_market<Side::Sell>(out, order_id, quantity);
     }
 
-    out.remaining_quantity = remaining;
-
-    if (remaining == 0) {
+    if (out.remaining_quantity == 0) {
         out.code = ErrorCode::Success;
         return out;
     }
 
     out.code = ErrorCode::MarketRemainderCancelled;
     return out;
+}
+
+
+template <Side S>
+std::uint64_t OrderBook::matching_engine_limit(AddResult& out, std::uint64_t order_id, std::int64_t price, std::uint64_t quantity) {
+    // Consume opposite-side liquidity while the limit price permits crossing.
+    auto& oppo_book = opposite_book<S>();
+    while (quantity > 0 && !oppo_book.empty()) {
+        const std::int64_t best_price = oppo_book.best_price();
+        if (!can_cross_limit<S>(price, best_price)) {
+            break;
+        }
+
+        auto& price_level = oppo_book.best_level();
+
+        while (quantity > 0 && !price_level.empty()) {
+            Order& maker = price_level.front();
+
+            const std::uint64_t fill = std::min(quantity, maker.quantity);
+
+            out.trades.emplace_back(order_id, maker.id, maker.price, fill);
+
+            maker.quantity -= fill;
+            quantity -= fill;
+            out.filled_quantity += fill;
+
+            if (maker.quantity == 0) {
+                Order* maker_ptr = &maker;
+                price_level.erase(*maker_ptr);
+                pool_.release(maker_ptr);
+            }
+        }
+        
+        if (price_level.empty())
+            oppo_book.erase_best();
+    }
+
+    return quantity;
+}
+
+
+template <Side S>
+std::uint64_t OrderBook::matching_engine_market(AddResult& out, std::uint64_t order_id, std::uint64_t quantity) {
+    auto& oppo_book = opposite_book<S>();
+    while (quantity > 0 && !oppo_book.empty()) {
+        auto& price_level = oppo_book.best_level();
+
+        while (quantity > 0 && !price_level.empty()) {
+            Order& maker = price_level.front();
+
+            const std::uint64_t fill = std::min(quantity, maker.quantity);
+
+            out.trades.emplace_back(order_id, maker.id, maker.price, fill);
+
+            maker.quantity -= fill;
+            quantity -= fill;
+            out.filled_quantity += fill;
+
+            if (maker.quantity == 0) {
+                Order* maker_ptr = &maker;
+                price_level.erase(*maker_ptr);
+                pool_.release(maker_ptr);
+            }
+        }
+
+        if (price_level.empty())
+            oppo_book.erase_best();
+    }
+
+    return quantity;
 }
 
 }  // namespace matching
