@@ -46,8 +46,8 @@ public:
     PriceLevel* get_or_create(std::int64_t price) noexcept {
         const std::size_t idx = idx_of(price);
 
-        if (levels_[idx].empty()) [[unlikely]]
-            active_tree.set(idx);
+        // if (levels_[idx].empty()) [[unlikely]]
+        active_tree.set(idx);
 
         if (!has_best_ || better_idx(idx, best_price_idx_)) {
             best_price_idx_ = idx;
