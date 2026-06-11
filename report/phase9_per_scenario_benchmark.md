@@ -342,21 +342,64 @@ The key observations are:
 
    The CSV contains rare large outliers, but the plotted distribution intentionally focuses on the body through p99.5. Those extreme values are likely dominated by system noise, scheduling, virtualization, or interrupt effects rather than deterministic matching-engine work.
 
-## Next Step: Linux System-Level Measurement Hygiene
+## Linux System-Level Measurement Hygiene
 
 The current per-scenario result is useful, but the benchmark environment still has avoidable OS-level noise. Phase 9 should continue by tightening the Linux execution environment before drawing conclusions from p99.9 or max latency.
 
-The next system-level work should prioritize:
+The first tuned runner is:
+
+```text
+benchmark/scripts/run_remote_hft_macro_scenarios_tuned.sh
+```
+
+It follows the existing remote benchmark pipeline style:
+
+1. SSH to the benchmark server.
+2. Clone/fetch/checkout the repository.
+3. Build and test.
+4. Apply benchmark-oriented Linux hygiene.
+5. Run `run_hft_macro_scenarios.sh`.
+6. Generate the per-scenario distribution plot.
+7. Package and download artifacts.
+
+The tuning is intentionally conservative. It improves measurement hygiene but avoids irreversible system changes.
 
 ### CPU Core Binding
 
-Run the benchmark on a fixed CPU to avoid scheduler migration:
+The tuned runner binds the benchmark to a fixed logical CPU:
 
-```bash
-taskset -c <cpu> benchmark/scripts/run_hft_macro_scenarios.sh
+```text
+numactl --physcpubind=<cpu> --membind=<node>
 ```
 
 This preserves L1/L2 cache, branch predictor, and local CPU state more consistently across the run.
+
+The auto-selection logic was updated after the first tuned run. It now prefers a logical CPU whose SMT sibling set does **not** include CPU0. This avoids sharing a physical core with CPU0, which often carries timer and housekeeping noise.
+
+On the 2026-06-11 cloud VM:
+
+```text
+CPU topology: 4 logical CPUs, 2 cores, SMT=2
+CPU0 sibling set: 0-1
+CPU2 sibling set: 2-3
+```
+
+The first tuned run selected CPU1, which still shared a physical core with CPU0:
+
+```text
+server_results/hft_macro_scenarios_tuned_20260611_224657/
+bench_cpu=1
+smt_siblings=0-1
+```
+
+After the auto-selection fix, later tuned runs selected CPU2:
+
+```text
+server_results/hft_macro_scenarios_tuned_20260611_232354/
+server_results/hft_macro_scenarios_tuned_20260611_233122/
+bench_cpu=2
+smt_siblings=2-3
+```
 
 ### NUMA Binding
 
@@ -368,6 +411,15 @@ numactl --physcpubind=<cpu> --membind=<node> ...
 
 The current WSL environment reports one NUMA node, but cloud or bare-metal benchmark machines may not.
 
+The 2026-06-11 cloud VM also reports one NUMA node:
+
+```text
+available: 1 nodes (0)
+node 0 cpus: 0 1 2 3
+```
+
+Even so, the tuned runner records the NUMA topology and uses `numactl` when available so that multi-node machines are handled correctly.
+
 ### Performance Governor
 
 Use the performance CPU governor to reduce frequency-scaling noise:
@@ -378,6 +430,8 @@ sudo cpupower frequency-set -g performance
 
 This is especially important when comparing elapsed ns distributions.
 
+On the tested KVM VM, the cpufreq governor files were not exposed, so the governor snapshot in the result is empty. The script still records `governors_before`, `governors_during`, and `governors_after` when the platform exposes them.
+
 ### Avoid SMT Sibling Interference
 
 If SMT is enabled, avoid running benchmark work on a logical CPU whose sibling is busy. The ideal setup is either:
@@ -386,6 +440,16 @@ If SMT is enabled, avoid running benchmark work on a logical CPU whose sibling i
 - or disable SMT for benchmark runs.
 
 This reduces shared frontend, execution-port, and cache interference.
+
+The tuned runner now records:
+
+```text
+bench_cpu=<cpu>
+smt_siblings=<sibling-list>
+run_prefix=<taskset-or-numactl command>
+```
+
+This makes every result self-describing.
 
 ### Reduce Background Noise
 
@@ -401,10 +465,186 @@ Keep unrelated work off the benchmark machine where possible:
 
 The goal is not mainly to improve p50. The main goal is to make p99 and p99.9 reflect matching-engine behavior rather than OS scheduling, interrupts, frequency transitions, or VM noise.
 
+The tuned runner records before/after snapshots of:
+
+```text
+uptime
+top CPU-consuming processes
+systemd timers
+```
+
+It also stops common noisy timers and services when possible:
+
+```text
+apt-daily
+apt-daily-upgrade
+man-db
+plocate/updatedb
+fstrim
+```
+
+### Kernel Activity Snapshot
+
+The next addition was explicit kernel-activity observation. The tuned runner now records before/after snapshots of:
+
+```text
+/proc/interrupts
+/proc/softirqs
+/proc/schedstat
+```
+
+It also writes:
+
+```text
+kernel_activity_delta.txt
+```
+
+This file reports per-CPU deltas and highlights the benchmark CPU. This is useful because binding the benchmark thread is not enough: kernel interrupts and softirqs can still run on the same CPU.
+
+The 2026-06-11 run after CPU0-sibling avoidance showed:
+
+```text
+server_results/hft_macro_scenarios_tuned_20260611_232354/
+
+bench_cpu=2
+interrupts on CPU2 total = 15592
+LOC local timer interrupts on CPU2 = 15429
+
+softirqs on CPU2 total = 2266
+RCU   on CPU2 = 1222
+TIMER on CPU2 = 622
+SCHED on CPU2 = 370
+NET_RX on CPU2 = 52
+```
+
+This showed that CPU binding and background-noise reduction are not the whole story. Local timer interrupts and kernel housekeeping still run on the benchmark CPU.
+
+### IRQ Affinity Snapshot
+
+The tuned runner then gained IRQ affinity snapshots:
+
+```text
+irq_affinity_before.txt
+irq_affinity_after.txt
+```
+
+Each row records:
+
+```text
+irq
+smp_affinity_list
+smp_affinity
+effective_affinity_list
+effective_affinity
+label
+```
+
+`kernel_activity_delta.txt` now also prints affinity information for the top interrupt rows.
+
+The result:
+
+```text
+server_results/hft_macro_scenarios_tuned_20260611_233122/
+```
+
+showed two concrete device IRQs hitting the benchmark CPU:
+
+```text
+IRQ 38 virtio5-request:
+  bench_cpu_delta=105
+  smp_affinity_list=2
+  effective_affinity_list=2
+
+IRQ 43 virtio1-input.0:
+  bench_cpu_delta=44
+  smp_affinity_list=0-3
+  effective_affinity_list=2
+```
+
+This is a useful distinction:
+
+- IRQ 38 is explicitly pinned to the benchmark CPU.
+- IRQ 43 is allowed on all CPUs but effectively routed to the benchmark CPU.
+- `LOC`, `RCU`, `TIMER`, and `SCHED` are not ordinary numbered device IRQs and require stronger kernel-level isolation if they need to be reduced further.
+
+## Tuned Results So Far
+
+The first tuned run:
+
+```text
+server_results/hft_macro_scenarios_tuned_20260611_224657/
+```
+
+used CPU1, which shared a physical core with CPU0. Even so, the improvement was immediate:
+
+| Scenario | Untuned elapsed p99 | Tuned elapsed p99 |
+|---|---:|---:|
+| `add_rest_existing_level` | 50 ns | 21 ns |
+| `add_rest_new_level` | 144 ns | 61 ns |
+| `cancel_order` | 33 ns | 12 ns |
+
+The later 10-trial run with CPU2:
+
+```text
+server_results/hft_macro_scenarios_tuned_20260611_232354/
+```
+
+produced:
+
+| Scenario | cycles p50 | cycles p95 | cycles p99 | cycles p999 | elapsed p50 | elapsed p95 | elapsed p99 | elapsed p999 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `add_rest_existing_level` | 22 | 44 | 44 | 66 | 11 ns | 21 ns | 22 ns | 50 ns |
+| `add_rest_new_level` | 22 | 88 | 154 | 286 | 11 ns | 41 ns | 71 ns | 132 ns |
+| `cancel_order` | 22 | 44 | 44 | 44 | 10 ns | 20 ns | 21 ns | 22 ns |
+
+The next 10-trial run with IRQ affinity observation:
+
+```text
+server_results/hft_macro_scenarios_tuned_20260611_233122/
+```
+
+was similar, with a slightly larger p999 tail:
+
+| Scenario | cycles p50 | cycles p95 | cycles p99 | cycles p999 | elapsed p50 | elapsed p95 | elapsed p99 | elapsed p999 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `add_rest_existing_level` | 22 | 44 | 44 | 66 | 11 ns | 21 ns | 22 ns | 40.2 ns |
+| `add_rest_new_level` | 44 | 88 | 154 | 308 | 11 ns | 41 ns | 71 ns | 150 ns |
+| `cancel_order` | 22 | 44 | 44 | 44 | 10 ns | 21 ns | 21 ns | 31 ns |
+
+The important conclusion is not that the exact p999 values are fixed. It is that the tuned setup dramatically reduces the system-noise component of the per-scenario distribution, while the kernel snapshots now make the remaining noise visible.
+
+## Current Next Step
+
+The next low-risk experiment is optional IRQ affinity avoidance:
+
+```text
+AVOID_IRQ_ON_BENCH_CPU=1
+```
+
+The intended behavior is:
+
+- only move ordinary numbered device IRQs;
+- avoid the benchmark CPU in `smp_affinity_list`;
+- record before/after affinity;
+- restore affinity on exit if requested;
+- leave `LOC`, `RCU`, `TIMER`, and scheduler housekeeping untouched.
+
+This should test whether moving device IRQs such as `virtio5-request` and `virtio1-input.0` away from the benchmark CPU reduces p999/max without requiring boot-level isolation.
+
+Stronger options remain available but are more invasive:
+
+- `isolcpus=<cpu>`
+- `nohz_full=<cpu>`
+- `rcu_nocbs=<cpu>`
+- C-state restrictions
+- disabling SMT
+
+Those should be treated as later, dedicated experiments rather than the default benchmark setup.
+
 ## Final Position
 
 Phase 9 does not replace the macro benchmark. It adds a diagnostic lens.
 
 The standard `hft_macro` benchmark remains the metric for release-level performance decisions. `perf record` remains the tool for instruction-level attribution. The per-scenario benchmark is useful because it preserves the real macro workload while exposing which single-operation classes generate latency tails.
 
-The first result is actionable: `add_rest_new_level` is the expensive measured path, while `cancel_order` is already extremely compact in the common case. Before optimizing further based on per-scenario p99.9 data, the benchmark should be rerun under a more controlled Linux system configuration.
+The first per-scenario result was actionable: `add_rest_new_level` is the expensive measured path, while `cancel_order` is already extremely compact in the common case. The subsequent tuned runs showed that system-level measurement hygiene materially changes p99/p999, so per-scenario latency should be reported together with CPU binding, NUMA binding, SMT sibling, and kernel activity metadata.
