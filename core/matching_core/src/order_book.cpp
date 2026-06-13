@@ -73,8 +73,10 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
 
 
     if (side == Side::Buy) {
+        bids_.prefetch_level(price);
         out.remaining_quantity = matching_engine_limit<Side::Buy>(out, order_id, price, quantity);
     } else {
+        asks_.prefetch_level(price);
         out.remaining_quantity = matching_engine_limit<Side::Sell>(out, order_id, price, quantity);
     }
 
