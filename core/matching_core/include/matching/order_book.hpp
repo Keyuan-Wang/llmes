@@ -14,7 +14,7 @@
 #include "types.hpp"
 #include "price_level.hpp"
 #include "order_pool.hpp"
-#include "array_order_book.hpp"
+#include "array_side_book.hpp"
 
 namespace matching {
 /**
