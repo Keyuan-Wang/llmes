@@ -85,8 +85,10 @@ public:
 		const std::uint64_t pool = warmup_events + args.batch_size + 50000;
 
 		book_ = std::make_unique<matching::OrderBook>(pool);
-		event_rng_ = SplitMix64(args.seed + iter_idx * 9973ULL);
-		param_rng_ = SplitMix64(args.seed * 1337ULL + iter_idx * 331ULL);
+		event_rng_ = SplitMix64(args.seed + args.trial_id * 1000003ULL +
+														iter_idx * 9973ULL);
+		param_rng_ = SplitMix64(args.seed * 1337ULL + args.trial_id * 500009ULL +
+														iter_idx * 331ULL);
 		id_counter_ = 1'000'000ULL;
 		best_bid_ = 999;
 		best_ask_ = 1000;
