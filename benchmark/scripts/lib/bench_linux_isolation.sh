@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Shared Linux benchmark isolation helpers (CPU selection, IRQ/workqueue
 # pinning, governor, watchdogs, numactl/chrt run prefix).
-# Sourced by run_hft_macro_perf_record.sh and similar drivers.
+# Sourced by local/hft_macro_perf_record.sh, local/pgo_compare.sh, and similar drivers.
 
 : "${BENCH_CPU:=auto}"
 : "${NUMA_NODE:=auto}"

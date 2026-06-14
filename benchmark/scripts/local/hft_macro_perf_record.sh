@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# run_hft_macro_perf_record.sh
+# hft_macro_perf_record.sh
 #
 # Instruction-level profiling of the hft_macro engine hot path via
 # `perf record` + `perf annotate`, with the recording window restricted to
@@ -25,10 +25,19 @@
 #
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$SCRIPTS_DIR/../.." && pwd)"
 
 # --- Config (override via env) ---
-BUILD_DIR="${BUILD_DIR:-$ROOT/build-perf}"
+ENABLE_LTO="${ENABLE_LTO:-0}"
+BUILD_DIR="${BUILD_DIR:-}"
+if [[ -z "$BUILD_DIR" ]]; then
+	if [[ "$ENABLE_LTO" == "1" ]]; then
+		BUILD_DIR="$ROOT/build-perf-lto"
+	else
+		BUILD_DIR="$ROOT/build-perf"
+	fi
+fi
 BUILD_TYPE="${BUILD_TYPE:-Release}"
 OUT_DIR="${OUT_DIR:-$ROOT/benchmark/results/hft_macro_perf_record_$(date +%Y%m%d_%H%M%S)}"
 
@@ -53,7 +62,7 @@ ANNOTATE_SYMBOLS="${ANNOTATE_SYMBOLS:-add_limit_order cancel_order modify_order 
 VERSION_TAG="${VERSION_TAG:-perf_record}"
 COMMIT_SHA="${COMMIT_SHA:-$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)}"
 
-# Linux system-level benchmark isolation (matches run_remote_hft_macro_scenarios_tuned.sh).
+# Linux system-level benchmark isolation (matches remote/hft_macro_scenarios_tuned.sh).
 ENABLE_LINUX_ISOLATION="${ENABLE_LINUX_ISOLATION:-1}"
 BENCH_CPU="${BENCH_CPU:-auto}"
 NUMA_NODE="${NUMA_NODE:-auto}"
@@ -76,7 +85,7 @@ REALTIME_PRIORITY="${REALTIME_PRIORITY:-95}"
 
 BIN="$BUILD_DIR/benchmark/bench_hft_macro"
 PERF_DATA="$OUT_DIR/perf.data"
-ISOLATION_LIB="$ROOT/benchmark/scripts/lib/bench_linux_isolation.sh"
+ISOLATION_LIB="$SCRIPTS_DIR/lib/bench_linux_isolation.sh"
 
 # --- Preflight ---
 if ! command -v perf >/dev/null 2>&1; then
@@ -117,9 +126,17 @@ isolation_cleanup() {
 # A separate build dir avoids clobbering the production Release build and
 # guarantees debug line info without changing -O3 codegen.
 echo "===== build (profiling binary) ====="
+CXX_FLAGS_RELEASE="-O3 -DNDEBUG -g"
+LINK_FLAGS_RELEASE=""
+if [[ "$ENABLE_LTO" == "1" ]]; then
+	CXX_FLAGS_RELEASE+=" -march=native -flto"
+	LINK_FLAGS_RELEASE="-flto"
+	echo "  LTO enabled: $CXX_FLAGS_RELEASE"
+fi
 cmake -S "$ROOT" -B "$BUILD_DIR" \
 	-DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
-	-DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG -g" \
+	-DCMAKE_CXX_FLAGS_RELEASE="$CXX_FLAGS_RELEASE" \
+	-DCMAKE_EXE_LINKER_FLAGS_RELEASE="$LINK_FLAGS_RELEASE" \
 	-DLLMES_BUILD_BENCHMARKS=ON \
 	-DLLMES_BUILD_TESTS=OFF
 cmake --build "$BUILD_DIR" --target bench_hft_macro -j"$(nproc)"
@@ -203,6 +220,7 @@ done
 	echo "version_tag   : $VERSION_TAG"
 	echo "commit_sha    : $COMMIT_SHA"
 	echo "build_type    : $BUILD_TYPE (+ -g, no LLMES_PROFILE_*)"
+	echo "enable_lto    : $ENABLE_LTO"
 	echo "events        : $EVENTS"
 	echo "freq          : $FREQ"
 	echo "call_graph    : $CALL_GRAPH"

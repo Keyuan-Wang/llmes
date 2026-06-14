@@ -5,7 +5,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
-root = Path(__file__).resolve().parents[2]
+root = Path(__file__).resolve().parents[3]
 res = Path(os.getenv("RESULTS_DIR", str(root / "benchmark" / "results")))
 plot_dir = Path(os.getenv("PLOT_OUT_DIR", str(res / "plots")))
 plot_dir.mkdir(parents=True, exist_ok=True)

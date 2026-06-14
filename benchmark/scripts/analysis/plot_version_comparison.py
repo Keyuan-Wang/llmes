@@ -22,6 +22,8 @@ Usage (env vars):
 	X_COL         X-axis column (default: orders)
 	PLOT_LEVEL    Filter by levels value (default: first available)
 	FIXED_ORDERS  For the bar chart, fix orders to this value (default: none)
+	BAR_NROWS     Bar chart subplot rows (default: 2)
+	BAR_NCOLS     Bar chart subplot columns (default: 3)
 	PLOT_OUT_DIR  Output directory for PNG files (default: benchmark/results/plots)
 	LOGX          Use log x-axis (default: 1)
 """
@@ -41,7 +43,7 @@ import numpy as np
 # Config
 # ---------------------------------------------------------------------------
 
-root = Path(__file__).resolve().parents[2]
+root = Path(__file__).resolve().parents[3]
 res = Path(os.getenv("RESULTS_DIR", str(root / "benchmark" / "results")))
 plot_dir = Path(os.getenv("PLOT_OUT_DIR", str(res / "plots")))
 plot_dir.mkdir(parents=True, exist_ok=True)
@@ -109,6 +111,8 @@ logx = os.getenv("LOGX", "1") == "1"
 
 # Fixed orders for bar chart
 fixed_orders = os.getenv("FIXED_ORDERS", "").strip()
+bar_nrows = max(1, int(os.getenv("BAR_NROWS", "2")))
+bar_ncols = max(1, int(os.getenv("BAR_NCOLS", "3")))
 
 # Autodetect versions
 versions = sorted(df["version_tag"].unique())
@@ -230,13 +234,16 @@ def make_bar_chart() -> list[Path]:
 		if not active_metrics:
 			continue
 
+		nrows = bar_nrows
+		ncols = bar_ncols
 		fig, axes = plt.subplots(
-			nrows=1, ncols=len(active_metrics),
-			figsize=(5.0 * len(active_metrics), 4.5),
+			nrows=nrows, ncols=ncols,
+			figsize=(5.0 * ncols, 4.5 * nrows),
 			squeeze=False,
 		)
+		axes_flat = axes.flatten()
 
-		for ax, metric in zip(axes[0], active_metrics):
+		for ax, metric in zip(axes_flat, active_metrics):
 			mc = f"{metric}_mean"
 			low = f"{metric}_ci95_low"
 			high = f"{metric}_ci95_high"
@@ -277,6 +284,9 @@ def make_bar_chart() -> list[Path]:
 			ax.set_xticks(x_pos)
 			ax.set_xticklabels(ver_labels, fontsize=8)
 			ax.grid(True, axis="y", alpha=0.3)
+
+		for ax in axes_flat[len(active_metrics):]:
+			ax.set_visible(False)
 
 		fig.suptitle(f"{scenario} (orders={fixed_orders}, levels={level_filter})",
 					 fontsize=14, y=1.02)

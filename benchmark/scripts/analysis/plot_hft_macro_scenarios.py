@@ -10,7 +10,7 @@ Produces a 2×3 figure:
 Usage:
   CSV=/path/to/hft_macro_scenario_cycles.csv \\
   OUT=/path/to/hft_macro_scenario_distributions.png \\
-  python benchmark/scripts/plot_hft_macro_scenarios.py
+  python benchmark/scripts/analysis/plot_hft_macro_scenarios.py
 
 Env:
   CSV          Input CSV (default: benchmark/results/hft_macro_scenario_cycles.csv)
@@ -40,7 +40,7 @@ from matplotlib.patches import Patch
 # Config
 # ---------------------------------------------------------------------------
 
-root = Path(__file__).resolve().parents[2]
+root = Path(__file__).resolve().parents[3]
 default_csv = root / "benchmark" / "results" / "hft_macro_scenario_cycles.csv"
 
 csv_path = Path(os.getenv("CSV", str(default_csv)))
@@ -112,7 +112,7 @@ def load_calls(path: Path) -> pd.DataFrame:
 	header = path.read_text(encoding="utf-8", errors="replace").splitlines()[0]
 	if "scenario_call" not in header and "measured" in header:
 		raise ValueError(
-			"Aggregated legacy CSV detected; re-run run_hft_macro_scenarios.sh "
+			"Aggregated legacy CSV detected; re-run local/hft_macro_scenarios.sh "
 			"to produce per-call scenario_call rows."
 		)
 

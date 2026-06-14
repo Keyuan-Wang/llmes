@@ -2,8 +2,8 @@
 """Summarize benchmark-side attribution for hft_macro scenario calls.
 
 Usage:
-  python benchmark/scripts/analyze_hft_macro_attribution.py CSV [CSV ...]
-  python benchmark/scripts/analyze_hft_macro_attribution.py CSV --out-dir DIR
+  python benchmark/scripts/analysis/analyze_hft_macro_attribution.py CSV [CSV ...]
+  python benchmark/scripts/analysis/analyze_hft_macro_attribution.py CSV --out-dir DIR
 """
 
 from __future__ import annotations

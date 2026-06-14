@@ -6,16 +6,16 @@ set -euo pipefail
 # 2) Clone/pull repository (branch or exact commit)
 # 3) Install OS + Python dependencies
 # 4) cmake build + ctest
-# 5) Run benchmark matrix (run_benchmarks.sh)
+# 5) Run benchmark matrix (local/benchmarks.sh)
 # 6) Merge latency & PMC metrics
 # 7) Generate baseline and version-comparison plots
 # 8) Package artifacts and download to local machine
 #
 # Usage:
 #   SERVER_IP=1.2.3.4 REPO_URL=git@github.com:you/llmes.git \
-#     bash benchmark/scripts/run_remote_bench.sh
+#     bash benchmark/scripts/remote/bench.sh
 #
-# All benchmark campaign parameters are forwarded to run_benchmarks.sh
+# All benchmark campaign parameters are forwarded to local/benchmarks.sh
 # and can be overridden via env vars (see below).
 
 # --- remote connection ---
@@ -38,7 +38,7 @@ REMOTE_TARBALL="${REMOTE_TARBALL:-$REMOTE_ROOT/bench_artifacts.tgz}"
 # --- local output ---
 LOCAL_OUT_DIR="${LOCAL_OUT_DIR:-$(pwd)/server_results}"
 
-# --- benchmark campaign params (forwarded to run_benchmarks.sh) ---
+# --- benchmark campaign params (forwarded to local/benchmarks.sh) ---
 SCENARIOS="${SCENARIOS:-hft_macro}"
 METRICS="${METRICS:-latency,pmc}"
 ORDERS="${ORDERS:-100000}"
@@ -67,7 +67,7 @@ INSTALL_DEPS="${INSTALL_DEPS:-1}"
 if [[ -z "$SERVER_IP" ]]; then
 	echo "ERROR: SERVER_IP is required"
 	echo "Example:"
-	echo "  SERVER_IP=1.2.3.4 REPO_URL=git@github.com:you/llmes.git bash benchmark/scripts/run_remote_bench.sh"
+	echo "  SERVER_IP=1.2.3.4 REPO_URL=git@github.com:you/llmes.git bash benchmark/scripts/remote/bench.sh"
 	exit 1
 fi
 
@@ -177,23 +177,23 @@ SCENARIOS="$SCENARIOS" METRICS="$METRICS" ORDERS="$ORDERS" LEVELS="$LEVELS" \
 BATCH_SIZES="$BATCH_SIZES" TRIALS="$TRIALS" ITERS="$ITERS" WARMUP_ITERS="$WARMUP_ITERS" \
 SEED="$SEED" VERSION_TAG="$VERSION_TAG" \
 COMMIT_SHA="${COMMIT_SHA:-$(git rev-parse --short HEAD)}" OUT_PREFIX="$OUT_PREFIX" \
-	bash benchmark/scripts/run_benchmarks.sh | tee "$REMOTE_ARTIFACTS_DIR/run_benchmarks.log"
+	bash benchmark/scripts/local/benchmarks.sh | tee "$REMOTE_ARTIFACTS_DIR/run_benchmarks.log"
 
 # ---- 7. Merge metrics ----
 echo "--- Merge metrics ---"
 OUT_PREFIX="$OUT_PREFIX" \
-	python benchmark/scripts/merge_benchmark_metrics.py | tee "$REMOTE_ARTIFACTS_DIR/merge_metrics.log"
+	python benchmark/scripts/analysis/merge_benchmark_metrics.py | tee "$REMOTE_ARTIFACTS_DIR/merge_metrics.log"
 
 # ---- 8. Baseline plot ----
 echo "--- Baseline plots ---"
 OUT_PREFIX="$OUT_PREFIX" PLOT_LEVEL="$PLOT_LEVEL" \
-	python benchmark/scripts/plot_benchmark.py | tee "$REMOTE_ARTIFACTS_DIR/plot_baseline.log"
+	python benchmark/scripts/analysis/plot_benchmark.py | tee "$REMOTE_ARTIFACTS_DIR/plot_baseline.log"
 
 # ---- 9. Version-comparison plot ----
 echo "--- Version comparison plots ---"
 OUT_PREFIX="$OUT_PREFIX" PLOT_METRICS="$PLOT_METRICS" PLOT_LEVEL="$PLOT_LEVEL" \
 FIXED_ORDERS="$FIXED_ORDERS" \
-	python benchmark/scripts/plot_version_comparison.py | tee "$REMOTE_ARTIFACTS_DIR/plot_comparison.log"
+	python benchmark/scripts/analysis/plot_version_comparison.py | tee "$REMOTE_ARTIFACTS_DIR/plot_comparison.log"
 
 # ---- 10. Environment info ----
 {

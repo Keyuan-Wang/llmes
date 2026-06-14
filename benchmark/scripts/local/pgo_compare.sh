@@ -2,15 +2,16 @@
 # Build and compare baseline, LTO, PGO, and LTO+PGO variants of hft_macro.
 #
 # Examples:
-#   bash benchmark/scripts/run_pgo_compare.sh
-#   bash benchmark/scripts/run_pgo_compare.sh \
+#   bash benchmark/scripts/local/pgo_compare.sh
+#   bash benchmark/scripts/local/pgo_compare.sh \
 #     --modes baseline,baseline+lto,baseline+pgo,baseline+lto+pgo \
 #     --trials 50
 #   ENABLE_LINUX_ISOLATION=1 BENCH_CPU=auto \
-#     bash benchmark/scripts/run_pgo_compare.sh --modes baseline,baseline+pgo
+#     bash benchmark/scripts/local/pgo_compare.sh --modes baseline,baseline+pgo
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$SCRIPTS_DIR/../.." && pwd)"
 
 MODES_CSV="${MODES:-baseline,baseline+lto,baseline+pgo,baseline+lto+pgo}"
 TRIALS="${TRIALS:-50}"
@@ -43,7 +44,7 @@ PROFILE_ROOT="${PROFILE_ROOT:-$OUT_DIR/profiles}"
 
 usage() {
 	cat <<'EOF'
-Usage: run_pgo_compare.sh [options]
+Usage: pgo_compare.sh [options]
 
 Options:
   --modes LIST              Comma-separated build modes. Accepted names:
@@ -273,7 +274,7 @@ for mode in "${MODES[@]}"; do
 done
 
 RUN_PREFIX=()
-ISOLATION_LIB="$ROOT/benchmark/scripts/lib/bench_linux_isolation.sh"
+ISOLATION_LIB="$SCRIPTS_DIR/lib/bench_linux_isolation.sh"
 if [[ "$ENABLE_LINUX_ISOLATION" == 1 ]]; then
 	[[ -f "$ISOLATION_LIB" ]] || { echo "ERROR: missing $ISOLATION_LIB" >&2; exit 1; }
 	# shellcheck source=/dev/null
@@ -333,7 +334,7 @@ merge_args=(
 	OUT_PREFIX=pgo_compare
 	GROUP_BY_SEED=0
 )
-env "${merge_args[@]}" python3 "$ROOT/benchmark/scripts/merge_benchmark_metrics.py"
+env "${merge_args[@]}" python3 "$SCRIPTS_DIR/analysis/merge_benchmark_metrics.py"
 
 if python3 -c 'import matplotlib, pandas, numpy' >/dev/null 2>&1; then
 	env \
@@ -344,7 +345,7 @@ if python3 -c 'import matplotlib, pandas, numpy' >/dev/null 2>&1; then
 		PLOT_LEVEL="$LEVELS" \
 		FIXED_ORDERS="$ORDERS" \
 		LOGX=0 \
-		python3 "$ROOT/benchmark/scripts/plot_version_comparison.py"
+		python3 "$SCRIPTS_DIR/analysis/plot_version_comparison.py"
 else
 	echo "  plotting skipped: matplotlib/pandas/numpy not available"
 fi

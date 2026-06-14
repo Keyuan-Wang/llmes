@@ -5,7 +5,7 @@ set -euo pipefail
 #
 # Usage:
 #   SERVER_IP=1.2.3.4 REPO_URL=https://github.com/you/llmes.git \
-#     bash benchmark/scripts/run_remote_hft_macro_perf_record.sh
+#     bash benchmark/scripts/remote/hft_macro_perf_record.sh
 
 SERVER_IP="${SERVER_IP:-}"
 SSH_USER="${SSH_USER:-root}"
@@ -21,14 +21,15 @@ REMOTE_REPO_DIR="${REMOTE_REPO_DIR:-$REMOTE_ROOT/repo}"
 REMOTE_ARTIFACTS_DIR="${REMOTE_ARTIFACTS_DIR:-$REMOTE_ROOT/artifacts}"
 REMOTE_TARBALL="${REMOTE_TARBALL:-$REMOTE_ROOT/hft_macro_perf_record_artifacts.tgz}"
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$SCRIPTS_DIR/../.." && pwd)"
 LOCAL_OUT_ROOT="${LOCAL_OUT_ROOT:-$ROOT_DIR/server_results}"
 LOCAL_OUT_ROOT="$(mkdir -p "$LOCAL_OUT_ROOT" && cd "$LOCAL_OUT_ROOT" && pwd)"
 LOCAL_ARCHIVES_DIR="$LOCAL_OUT_ROOT/archives"
 LOCAL_RUNS_DIR="$LOCAL_OUT_ROOT/hft_macro/perf_record"
 mkdir -p "$LOCAL_ARCHIVES_DIR" "$LOCAL_RUNS_DIR"
 
-# Forwarded to run_hft_macro_perf_record.sh
+# Forwarded to local/hft_macro_perf_record.sh
 ORDERS="${ORDERS:-100000}"
 LEVELS="${LEVELS:-100}"
 BATCH_SIZE="${BATCH_SIZE:-1000000}"
@@ -39,6 +40,8 @@ EVENTS="${EVENTS:-cycles,branch-misses}"
 FREQ="${FREQ:-8000}"
 CALL_GRAPH="${CALL_GRAPH:-dwarf}"
 USE_CHRT_FIFO="${USE_CHRT_FIFO:-1}"
+ENABLE_LTO="${ENABLE_LTO:-0}"
+BUILD_DIR="${BUILD_DIR:-}"
 VERSION_TAG="${VERSION_TAG:-perf_record}"
 ENABLE_LINUX_ISOLATION="${ENABLE_LINUX_ISOLATION:-1}"
 INSTALL_DEPS="${INSTALL_DEPS:-1}"
@@ -61,13 +64,14 @@ echo "  Server     : ${SSH_USER}@${SERVER_IP}"
 echo "  Checkout   : ${COMMIT_SHA:-$BRANCH}"
 echo "  Isolation  : $ENABLE_LINUX_ISOLATION"
 echo "  Events     : $EVENTS @ ${FREQ}Hz, call-graph=$CALL_GRAPH, chrt=$USE_CHRT_FIFO"
+echo "  LTO        : $ENABLE_LTO"
 echo ""
 
 if [[ "$SYNC_LOCAL_SCRIPTS" == "1" ]]; then
 	LOCAL_SYNC_TAR="$(mktemp /tmp/bench_perf_scripts_XXXXXX.tgz)"
 	tar czf "$LOCAL_SYNC_TAR" -C "$ROOT_DIR" \
 		benchmark/scripts/lib/bench_linux_isolation.sh \
-		benchmark/scripts/run_hft_macro_perf_record.sh
+		benchmark/scripts/local/hft_macro_perf_record.sh
 	ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SERVER_IP}" "mkdir -p '$REMOTE_ROOT'"
 	scp "${SCP_OPTS[@]}" "$LOCAL_SYNC_TAR" "${SSH_USER}@${SERVER_IP}:${REMOTE_SYNC_TARBALL}"
 	rm -f "$LOCAL_SYNC_TAR"
@@ -81,7 +85,7 @@ ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SERVER_IP}" \
 	ORDERS='$ORDERS' LEVELS='$LEVELS' BATCH_SIZE='$BATCH_SIZE' \
 	WARMUP_ITERS='$WARMUP_ITERS' ITERS='$ITERS' SEED='$SEED' \
 	EVENTS='$EVENTS' FREQ='$FREQ' CALL_GRAPH='$CALL_GRAPH' USE_CHRT_FIFO='$USE_CHRT_FIFO' \
-	VERSION_TAG='$VERSION_TAG' \
+	ENABLE_LTO='$ENABLE_LTO' BUILD_DIR='$BUILD_DIR' VERSION_TAG='$VERSION_TAG' \
 	ENABLE_LINUX_ISOLATION='$ENABLE_LINUX_ISOLATION' INSTALL_DEPS='$INSTALL_DEPS' \
 	REMOTE_SYNC_TARBALL='$REMOTE_SYNC_TARBALL' bash -s" <<'ENDSSH'
 set -euo pipefail
@@ -140,10 +144,10 @@ env \
 	ORDERS="$ORDERS" LEVELS="$LEVELS" BATCH_SIZE="$BATCH_SIZE" \
 	WARMUP_ITERS="$WARMUP_ITERS" ITERS="$ITERS" SEED="$SEED" \
 	EVENTS="$EVENTS" FREQ="$FREQ" CALL_GRAPH="$CALL_GRAPH" USE_CHRT_FIFO="$USE_CHRT_FIFO" \
-	VERSION_TAG="$VERSION_TAG" \
+	ENABLE_LTO="$ENABLE_LTO" BUILD_DIR="$BUILD_DIR" VERSION_TAG="$VERSION_TAG" \
 	COMMIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)" \
 	OUT_DIR="$OUT_DIR" ENABLE_LINUX_ISOLATION="$ENABLE_LINUX_ISOLATION" \
-	bash benchmark/scripts/run_hft_macro_perf_record.sh \
+	bash benchmark/scripts/local/hft_macro_perf_record.sh \
 	| tee "$REMOTE_ARTIFACTS_DIR/run_hft_macro_perf_record.log"
 
 {
@@ -160,6 +164,7 @@ env \
 	echo "freq=$FREQ"
 	echo "call_graph=$CALL_GRAPH"
 	echo "use_chrt_fifo=$USE_CHRT_FIFO"
+	echo "enable_lto=$ENABLE_LTO"
 	echo "linux_isolation=$ENABLE_LINUX_ISOLATION"
 	echo "results_dir=$OUT_DIR"
 	echo

@@ -20,7 +20,8 @@ REMOTE_REPO_DIR="${REMOTE_REPO_DIR:-$REMOTE_ROOT/repo}"
 REMOTE_ARTIFACTS_DIR="${REMOTE_ARTIFACTS_DIR:-$REMOTE_ROOT/artifacts}"
 REMOTE_TARBALL="${REMOTE_TARBALL:-$REMOTE_ROOT/hft_macro_scenarios_tuned_artifacts.tgz}"
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$SCRIPTS_DIR/../.." && pwd)"
 LOCAL_OUT_ROOT="${LOCAL_OUT_DIR:-$ROOT_DIR/server_results}"
 LOCAL_OUT_ROOT="$(mkdir -p "$LOCAL_OUT_ROOT" && cd "$LOCAL_OUT_ROOT" && pwd)"
 LOCAL_ARCHIVES_DIR="$LOCAL_OUT_ROOT/archives"
@@ -805,7 +806,7 @@ finalize_run() {
 		if [[ ! -f "$OUT_PNG" ]]; then
 			echo "--- Plot per-scenario distributions (finalize) ---"
 			CSV="$OUT_CSV" OUT="$OUT_PNG" TRIALS="" \
-				python benchmark/scripts/plot_hft_macro_scenarios.py \
+				python benchmark/scripts/analysis/plot_hft_macro_scenarios.py \
 				| tee "$REMOTE_ARTIFACTS_DIR/plot_hft_macro_scenarios.log" || true
 		fi
 		if [[ ! -f "$RESULTS_DIR/env.txt" ]]; then
@@ -867,7 +868,7 @@ env \
 	ORDERS="$ORDERS" LEVELS="$LEVELS" BATCH_SIZE="$BATCH_SIZE" \
 	SEED="$SEED" FOCUS="$FOCUS" VERSION_TAG="$VERSION_TAG" \
 	COMMIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)" OUT_DIR="$RESULTS_DIR" OUT_CSV="$OUT_CSV" \
-	"${RUN_PREFIX[@]}" bash benchmark/scripts/run_hft_macro_scenarios.sh \
+	"${RUN_PREFIX[@]}" bash benchmark/scripts/local/hft_macro_scenarios.sh \
 	| tee "$REMOTE_ARTIFACTS_DIR/run_hft_macro_scenarios_tuned.log"
 
 echo "[$(date -Iseconds)] benchmark finished, capturing post-run snapshots ..."
@@ -878,10 +879,10 @@ restore_irqs
 snapshot_kernel restored "$RESULTS_DIR"
 
 CSV="$OUT_CSV" OUT="$OUT_PNG" TRIALS="" \
-	python benchmark/scripts/plot_hft_macro_scenarios.py \
+	python benchmark/scripts/analysis/plot_hft_macro_scenarios.py \
 	| tee "$REMOTE_ARTIFACTS_DIR/plot_hft_macro_scenarios.log" || true
 
-python benchmark/scripts/analyze_hft_macro_attribution.py \
+python benchmark/scripts/analysis/analyze_hft_macro_attribution.py \
 	"$OUT_CSV" --out-dir "$RESULTS_DIR" \
 	| tee "$REMOTE_ARTIFACTS_DIR/analyze_hft_macro_attribution.log" || true
 

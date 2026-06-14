@@ -5,7 +5,7 @@ set -euo pipefail
 #
 # Usage:
 #   SERVER_IP=1.2.3.4 REPO_URL=https://github.com/you/llmes.git \
-#     bash benchmark/scripts/run_remote_ring_size_sweep.sh
+#     bash benchmark/scripts/remote/ring_size_sweep.sh
 
 SERVER_IP="${SERVER_IP:-}"
 SSH_USER="${SSH_USER:-root}"
@@ -142,7 +142,7 @@ for ((idx=0; idx<N; idx++)); do
   SCENARIOS="$SCENARIOS" METRICS="$METRICS" ORDERS="$ORDERS" LEVELS="$LEVELS" \
   BATCH_SIZES="$BATCH_SIZES" TRIALS="$TRIALS" ITERS="$ITERS" WARMUP_ITERS="$WARMUP_ITERS" \
   SEED="$SEED" VERSION_TAG="$tag" COMMIT_SHA="$BASE_SHA" OUT_PREFIX="$prefix" \
-    bash benchmark/scripts/run_benchmarks.sh | tee "$REMOTE_ARTIFACTS_DIR/run_${prefix}.log"
+    bash benchmark/scripts/local/benchmarks.sh | tee "$REMOTE_ARTIFACTS_DIR/run_${prefix}.log"
 
   LAT_FILES+=("$RES_DIR/${prefix}_latency_raw_trials.csv")
   PMC_FILES+=("$RES_DIR/${prefix}_pmc_raw_trials.csv")
@@ -179,12 +179,12 @@ for f in "${PMC_FILES[@]}"; do
 done
 
 LAT_CSV="$COMBINED_LAT" PMC_CSV="$COMBINED_PMC" OUT_PREFIX="$COMPARE_PREFIX" \
-  python benchmark/scripts/merge_benchmark_metrics.py | tee "$REMOTE_ARTIFACTS_DIR/merge_compare.log"
+  python benchmark/scripts/analysis/merge_benchmark_metrics.py | tee "$REMOTE_ARTIFACTS_DIR/merge_compare.log"
 
 echo "--- Version comparison plots ---"
 OUT_PREFIX="$COMPARE_PREFIX" PLOT_METRICS="$PLOT_METRICS" PLOT_LEVEL="$PLOT_LEVEL" \
   FIXED_ORDERS="$FIXED_ORDERS" \
-  python benchmark/scripts/plot_version_comparison.py | tee "$REMOTE_ARTIFACTS_DIR/plot_compare.log"
+  python benchmark/scripts/analysis/plot_version_comparison.py | tee "$REMOTE_ARTIFACTS_DIR/plot_compare.log"
 
 {
   echo "timestamp=$(date -Iseconds)"

@@ -9,7 +9,7 @@ set -euo pipefail
 #
 # Usage:
 #   SERVER_IP=1.2.3.4 REPO_URL=git@github.com:you/llmes.git \
-#     bash benchmark/scripts/run_remote_compare.sh
+#     bash benchmark/scripts/remote/compare.sh
 #
 # Versions are specified as a single comma-separated list of  commit:label  pairs:
 #
@@ -39,7 +39,8 @@ REMOTE_ARTIFACTS_DIR="${REMOTE_ARTIFACTS_DIR:-$REMOTE_ROOT/artifacts}"
 REMOTE_TARBALL="${REMOTE_TARBALL:-$REMOTE_ROOT/bench_compare_artifacts.tgz}"
 
 # --- local output ---
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$SCRIPTS_DIR/../.." && pwd)"
 LOCAL_OUT_ROOT="${LOCAL_OUT_ROOT:-$ROOT_DIR/server_results}"
 LOCAL_OUT_ROOT="$(mkdir -p "$LOCAL_OUT_ROOT" && cd "$LOCAL_OUT_ROOT" && pwd)"
 LOCAL_ARCHIVES_DIR="$LOCAL_OUT_ROOT/archives"
@@ -59,7 +60,7 @@ ITERS="${ITERS:-1}"
 WARMUP_ITERS="${WARMUP_ITERS:-1}"
 SEED="${SEED:-42}"
 
-# --- Linux benchmark isolation (matches setup_remote_nohz_full.sh defaults) ---
+# --- Linux benchmark isolation (matches remote/setup_nohz_full.sh defaults) ---
 BENCH_CPU="${BENCH_CPU:-2}"
 NUMA_NODE="${NUMA_NODE:-0}"
 ISOLATED_CPUS="${ISOLATED_CPUS:-2,3}"
@@ -83,7 +84,7 @@ INSTALL_DEPS="${INSTALL_DEPS:-1}"
 if [[ -z "$SERVER_IP" ]]; then
   echo "ERROR: SERVER_IP is required"
   echo "Usage:"
-  echo "  SERVER_IP=1.2.3.4 REPO_URL=git@github.com:you/llmes.git bash benchmark/scripts/run_remote_compare.sh"
+  echo "  SERVER_IP=1.2.3.4 REPO_URL=git@github.com:you/llmes.git bash benchmark/scripts/remote/compare.sh"
   exit 1
 fi
 
@@ -317,7 +318,7 @@ for ((idx=0; idx<N; idx++)); do
   env SCENARIOS="$SCENARIOS" METRICS="$METRICS" ORDERS="$ORDERS" LEVELS="$LEVELS" \
     BATCH_SIZES="$BATCH_SIZES" TRIALS="$TRIALS" ITERS="$ITERS" WARMUP_ITERS="$WARMUP_ITERS" \
     SEED="$SEED" VERSION_TAG="$tag" COMMIT_SHA="$sha" OUT_PREFIX="$prefix" \
-    "${RUN_PREFIX[@]}" bash benchmark/scripts/run_benchmarks.sh \
+    "${RUN_PREFIX[@]}" bash benchmark/scripts/local/benchmarks.sh \
     | tee "$REMOTE_ARTIFACTS_DIR/run_${prefix}.log"
 
   LAT_FILES+=("$RES_DIR/${prefix}_latency_raw_trials.csv")
@@ -368,13 +369,13 @@ fi
 
 # Run merge_benchmark_metrics on combined data
 LAT_CSV="$COMBINED_LAT" PMC_CSV="$COMBINED_PMC" OUT_PREFIX="$COMPARE_PREFIX" \
-  python benchmark/scripts/merge_benchmark_metrics.py | tee "$REMOTE_ARTIFACTS_DIR/merge_compare.log"
+  python benchmark/scripts/analysis/merge_benchmark_metrics.py | tee "$REMOTE_ARTIFACTS_DIR/merge_compare.log"
 
 # ---- 6. Version-comparison plots ----
 echo "--- Version comparison plots ---"
 OUT_PREFIX="$COMPARE_PREFIX" PLOT_METRICS="$PLOT_METRICS" PLOT_LEVEL="$PLOT_LEVEL" \
 FIXED_ORDERS="$FIXED_ORDERS" \
-  python benchmark/scripts/plot_version_comparison.py | tee "$REMOTE_ARTIFACTS_DIR/plot_compare.log"
+  python benchmark/scripts/analysis/plot_version_comparison.py | tee "$REMOTE_ARTIFACTS_DIR/plot_compare.log"
 
 # ---- 7. Environment info ----
 {

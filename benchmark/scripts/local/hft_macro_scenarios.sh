@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$SCRIPTS_DIR/../.." && pwd)"
 OUT_DIR="${OUT_DIR:-$ROOT/benchmark/results}"
 mkdir -p "$OUT_DIR"
 
