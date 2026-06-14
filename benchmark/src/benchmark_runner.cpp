@@ -25,6 +25,11 @@
 #include <unistd.h>
 #endif
 
+#if defined(LLMES_PGO_TRAINING)
+extern "C" void __gcov_dump(void);
+extern "C" void __gcov_reset(void);
+#endif
+
 namespace benchmark_runner {
 namespace {
 
@@ -206,6 +211,12 @@ int RunScenario(IBenchScenario& scenario, int argc, char** argv) {
 	for (std::uint64_t i = 0; i < args.iters; ++i) {
 		scenario.Setup(args, iter_counter);
 
+#if defined(LLMES_PGO_TRAINING)
+		// Discard startup, warmup, and Setup counters. The generated profile must
+		// describe the engine replay, not workload pre-generation.
+		__gcov_reset();
+#endif
+
 		if (perf_record_ctl.enabled()) perf_record_ctl.Enable();
 
 		if (args.metric == MetricMode::Pmc && !perf.ResetEnable()) {
@@ -218,6 +229,10 @@ int RunScenario(IBenchScenario& scenario, int argc, char** argv) {
 		}
 		const auto t1 = Clock::now();
 
+#if defined(LLMES_PGO_TRAINING)
+		__gcov_dump();
+#endif
+
 		if (args.metric == MetricMode::Pmc) {
 			if (!perf.Disable()) return 3;
 		}
@@ -225,6 +240,11 @@ int RunScenario(IBenchScenario& scenario, int argc, char** argv) {
 		if (perf_record_ctl.enabled()) perf_record_ctl.Disable();
 
 		scenario.Teardown();
+
+#if defined(LLMES_PGO_TRAINING)
+		// Prevent Teardown and result formatting from being merged at process exit.
+		__gcov_reset();
+#endif
 		++iter_counter;
 
 		if (args.metric == MetricMode::Latency) {

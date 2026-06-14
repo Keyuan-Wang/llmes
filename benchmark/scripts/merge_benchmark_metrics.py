@@ -77,8 +77,9 @@ group_keys = [
 	"batch_size",
 	"warmup_iters",
 	"iters",
-	"seed",
 ]
+if os.getenv("GROUP_BY_SEED", "1") != "0":
+	group_keys.append("seed")
 metric_cols = [
 	"avg_ns", "p50_ns", "p95_ns", "p99_ns", "ops_s",
 	"cycles_per_op", "instructions_per_op", "branches_per_op",
