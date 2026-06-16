@@ -1,33 +1,34 @@
-#include <mutex>
 #include <array>
+#include <atomic>
+#include <cstddef>
 #include <optional>
 
 template <typename T, std::size_t Capacity>
-class MutexRingBuffer {
+class SpscRingBuffer {
 public:
     static_assert(Capacity >= 2);
 
     bool push(const T& value) {
-        std::lock_guard<std::mutex> lock(mutex_);
-
+        const std::size_t head = head_.load();
         const std::size_t next_ = increment(head_);
 
-        if (next_ == tail_)     return false;   // full
+        if (next_ == tail_.load())     return false;   // full
 
         buffer_[head_] = value;
-        head_ = next_;
+        head_.store(next_);
         return true;
     }
 
 
     std::optional<T> pop() {
-        std::lock_guard<std::mutex> lock(mutex_);
 
-        if (head_ == tail_)     return std::nullopt;   // empty
+        const std::size_t tail = tail_.load();
 
-        const T value = buffer_[tail_];
+        if (head_.load() == tail)     return std::nullopt;   // empty
 
-        tail_ = increment(tail_);
+        const T value = buffer_[tail];
+
+        tail_.store(increment(tail));
 
         return value;
     }
@@ -43,7 +44,6 @@ private:
 
 
     std::array<T, Capacity> buffer_{};
-    std::size_t tail_ = 0;
-    std::size_t head_ = 0;
-    std::mutex mutex_;
+    std::atomic<std::size_t> head_{0};
+    std::atomic<std::size_t> tail_{0};
 };
