@@ -15,6 +15,7 @@ if(LLMES_BUILD_TESTS)
 endif()
 
 add_subdirectory(core/matching_core)
+add_subdirectory(core/order_entry)
 
 if(LLMES_BUILD_BENCHMARKS)
   add_subdirectory(benchmark)

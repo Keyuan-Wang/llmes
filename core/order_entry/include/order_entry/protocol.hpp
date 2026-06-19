@@ -1,9 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 
 
-namespace llme::order_entry {
+namespace llmes::order_entry {
 
 inline constexpr std::uint32_t kMagic = 0x6c6c6d65; // "llme"
 
@@ -53,6 +54,15 @@ struct MessageHeader {
     std::uint64_t sequence_numer    = 0;
     std::uint64_t session_id        = 0;
     std::uint32_t reserved          = 0;
+
+    static constexpr std::size_t off_magic = 0;
+    static constexpr std::size_t off_version = 4;
+    static constexpr std::size_t off_message_type = 6;
+    static constexpr std::size_t off_payload_length = 8;
+    static constexpr std::size_t off_flags = 10;
+    static constexpr std::size_t off_sequence_numer = 12;
+    static constexpr std::size_t off_session_id = 20;
+    static constexpr std::size_t off_reserved = 28;
 };
 
 
@@ -62,6 +72,11 @@ struct NewOrder {
     Side side                       = Side::Buy;
     std::uint64_t price             = 0;
     std::uint64_t quantity          = 0;
+
+    static constexpr std::size_t off_id = 0;
+    static constexpr std::size_t off_side = 8;
+    static constexpr std::size_t off_price = 16;
+    static constexpr std::size_t off_quantity = 24;
 };
 
 
