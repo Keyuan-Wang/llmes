@@ -10,7 +10,10 @@ inline constexpr std::uint32_t kMagic = 0x6c6c6d65; // "llme"
 
 inline constexpr std::uint16_t kVersion = 1;
 
+inline constexpr std::size_t kFrameSize = 64;
 inline constexpr std::size_t kHeaderSize = 32;
+inline constexpr std::size_t kPayloadSize = 32;
+
 
 // compact message
 enum class MessageType : std::uint16_t {
@@ -46,68 +49,79 @@ enum class DecodeStatus {
 
 // 32-bytes
 struct MessageHeader {
-    std::uint32_t magic             = kMagic;
-    std::uint16_t version           = kVersion;
+    std::uint32_t magic                             = kMagic;
+    std::uint16_t version                           = kVersion;
     MessageType message_type{};
-    std::uint16_t payload_length    = 0;
-    std::uint16_t flags             = 0;
-    std::uint64_t sequence_numer    = 0;
-    std::uint64_t session_id        = 0;
-    std::uint32_t reserved          = 0;
+    std::uint16_t payload_length                    = 0;
+    std::uint16_t flags                             = 0;
+    std::uint64_t sequence_numer                    = 0;
+    std::uint64_t session_id                        = 0;
+    std::uint32_t reserved                          = 0;
 
-    static constexpr std::size_t off_magic = 0;
-    static constexpr std::size_t off_version = 4;
-    static constexpr std::size_t off_message_type = 6;
+    static constexpr std::size_t off_magic          = 0;
+    static constexpr std::size_t off_version        = 4;
+    static constexpr std::size_t off_message_type   = 6;
     static constexpr std::size_t off_payload_length = 8;
-    static constexpr std::size_t off_flags = 10;
+    static constexpr std::size_t off_flags          = 10;
     static constexpr std::size_t off_sequence_numer = 12;
-    static constexpr std::size_t off_session_id = 20;
-    static constexpr std::size_t off_reserved = 28;
+    static constexpr std::size_t off_session_id     = 20;
+    static constexpr std::size_t off_reserved       = 28;
 };
 
 
 // 32-bytes
 struct NewOrder {
-    std::uint64_t client_order_id   = 0;
-    Side side                       = Side::Buy;
-    std::uint64_t price             = 0;
-    std::uint64_t quantity          = 0;
+    std::uint64_t client_order_id               = 0;
+    Side side                                   = Side::Buy;
+    std::uint64_t price                         = 0;
+    std::uint64_t quantity                      = 0;
 
-    static constexpr std::size_t off_id = 0;
-    static constexpr std::size_t off_side = 8;
-    static constexpr std::size_t off_price = 16;
-    static constexpr std::size_t off_quantity = 24;
+    static constexpr std::size_t off_id         = 0;
+    static constexpr std::size_t off_side       = 8;
+    static constexpr std::size_t off_price      = 16;
+    static constexpr std::size_t off_quantity   = 24;
 };
 
 
 // 32-bytes
 struct CancelOrder {
-    std::uint64_t client_order_id   = 0;
+    std::uint64_t client_order_id               = 0;
     std::uint64_t reserved1;
     std::uint64_t reserved2;
     std::uint64_t reserved3;
+
+    static constexpr std::size_t off_id         = 0;
 };
 
 
 // 32-bytes
 struct ModifyOrder {
-    std::uint64_t client_order_id   = 0;
-    std::uint64_t new_price         = 0;
-    std::uint64_t new_quantity      = 0;
+    std::uint64_t client_order_id                   = 0;
+    std::uint64_t new_price                         = 0;
+    std::uint64_t new_quantity                      = 0;
     std::uint64_t reserved;
+
+    static constexpr std::size_t off_id             = 0;
+    static constexpr std::size_t off_new_price      = 8;
+    static constexpr std::size_t off_new_quantity   = 16;
 };
 
 
-struct Hearbeat {};
+// 32-bytes
+struct Hearbeat {
+    std::uint64_t reserved1;
+    std::uint64_t reserved2;
+    std::uint64_t reserved3;
+    std::uint64_t reserved4;
+};
 
 
-struct Logout {};
-
-
-inline constexpr std::uint16_t kNewOrderPayloadSize = 32;
-inline constexpr std::uint16_t kCancelOrderPayloadSize = 32;
-inline constexpr std::uint16_t kModifyOrderPayloadSize = 32;
-inline constexpr std::uint16_t kHeartbeatPayloadSize = 0;
-inline constexpr std::uint16_t kLogoutPayloadSize = 0;
+// 32-bytes
+struct Logout {
+    std::uint64_t reserved1;
+    std::uint64_t reserved2;
+    std::uint64_t reserved3;
+    std::uint64_t reserved4;
+};
 
 }   // namespace llmes::order_entry
