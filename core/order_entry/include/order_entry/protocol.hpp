@@ -54,7 +54,7 @@ struct MessageHeader {
     MessageType message_type{};
     std::uint16_t payload_length                    = 0;
     std::uint16_t flags                             = 0;
-    std::uint64_t sequence_numer                    = 0;
+    std::uint64_t sequence_number                    = 0;
     std::uint64_t session_id                        = 0;
     std::uint32_t reserved                          = 0;
 
@@ -63,7 +63,7 @@ struct MessageHeader {
     static constexpr std::size_t off_message_type   = 6;
     static constexpr std::size_t off_payload_length = 8;
     static constexpr std::size_t off_flags          = 10;
-    static constexpr std::size_t off_sequence_numer = 12;
+    static constexpr std::size_t off_sequence_number = 12;
     static constexpr std::size_t off_session_id     = 20;
     static constexpr std::size_t off_reserved       = 28;
 };
@@ -86,9 +86,9 @@ struct NewOrder {
 // 32-bytes
 struct CancelOrder {
     std::uint64_t client_order_id               = 0;
-    std::uint64_t reserved1;
-    std::uint64_t reserved2;
-    std::uint64_t reserved3;
+    std::uint64_t reserved1                     = 0;
+    std::uint64_t reserved2                     = 0;
+    std::uint64_t reserved3                     = 0;
 
     static constexpr std::size_t off_id         = 0;
 };
@@ -99,7 +99,7 @@ struct ModifyOrder {
     std::uint64_t client_order_id                   = 0;
     std::uint64_t new_price                         = 0;
     std::uint64_t new_quantity                      = 0;
-    std::uint64_t reserved;
+    std::uint64_t reserved                          = 0;
 
     static constexpr std::size_t off_id             = 0;
     static constexpr std::size_t off_new_price      = 8;
@@ -179,20 +179,20 @@ struct Trade {
 
 
 // 32-bytes
-struct Hearbeat {
-    std::uint64_t reserved1;
-    std::uint64_t reserved2;
-    std::uint64_t reserved3;
-    std::uint64_t reserved4;
+struct Heartbeat {
+    std::uint64_t reserved1 = 0;
+    std::uint64_t reserved2 = 0;
+    std::uint64_t reserved3 = 0;
+    std::uint64_t reserved4 = 0;
 };
 
 
 // 32-bytes
 struct Logout {
-    std::uint64_t reserved1;
-    std::uint64_t reserved2;
-    std::uint64_t reserved3;
-    std::uint64_t reserved4;
+    std::uint64_t reserved1 = 0;
+    std::uint64_t reserved2 = 0;
+    std::uint64_t reserved3 = 0;
+    std::uint64_t reserved4 = 0;
 };
 
 }   // namespace llmes::order_entry

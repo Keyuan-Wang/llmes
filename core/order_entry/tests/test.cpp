@@ -1,6 +1,7 @@
 #include "order_entry/codec.hpp"
 #include "order_entry/frame_parser.hpp"
 #include "order_entry/protocol.hpp"
+#include "order_entry/session.hpp"
 
 #include <array>
 #include <cassert>
@@ -29,7 +30,7 @@ Frame make_new_order_frame(std::uint64_t id,
     Frame frame{};
 
     MessageHeader header;
-    header.sequence_numer   = seq;
+    header.sequence_number   = seq;
     header.session_id       = session;
 
     NewOrder order;
@@ -50,7 +51,7 @@ Frame make_cancel_order_frame(std::uint64_t id,
     Frame frame{};
 
     MessageHeader header;
-    header.sequence_numer = seq;
+    header.sequence_number = seq;
     header.session_id = session;
 
     CancelOrder order;
@@ -70,7 +71,7 @@ Frame make_modify_order_frame(std::uint64_t id,
     Frame frame{};
 
     MessageHeader header;
-    header.sequence_numer = seq;
+    header.sequence_number = seq;
     header.session_id = session;
 
     ModifyOrder order;
@@ -92,11 +93,30 @@ Frame make_control_frame(MessageType type,
     MessageHeader header;
     header.message_type = type;
     header.payload_length = kPayloadSize;
-    header.sequence_numer = seq;
+    header.sequence_number = seq;
     header.session_id = session;
 
     encode_header(header, frame);
     return frame;
+}
+
+DecodedMessage parse_request_frame(const Frame& frame) {
+    Parser parser;
+    DecodedMessage msg;
+
+    assert(parser.append(as_span(frame)));
+    assert(parser.try_parse(msg) == Parser::Status::MessageReady);
+
+    return msg;
+}
+
+MessageHeader decode_response_header(const Frame& frame, MessageType expected_type) {
+    MessageHeader header;
+    assert(decode_header(frame, header) == DecodeStatus::Ok);
+    assert(validate_response_header(header) == DecodeStatus::Ok);
+    assert(header.message_type == expected_type);
+    assert(header.payload_length == kPayloadSize);
+    return header;
 }
 
 
@@ -110,7 +130,7 @@ void test_codec_new_order_round_trip() {
 
     assert(header.message_type == MessageType::NewOrder);
     assert(header.payload_length == kPayloadSize);
-    assert(header.sequence_numer == 7);
+    assert(header.sequence_number == 7);
     assert(header.session_id == 88);
 
     NewOrder order;
@@ -175,7 +195,7 @@ void test_codec_control_frames() {
 
 void test_response_codec_round_trip() {
     MessageHeader header;
-    header.sequence_numer = 20;
+    header.sequence_number = 20;
     header.session_id = 88;
 
     {
@@ -321,6 +341,121 @@ void test_bad_header_validation() {
     }
 }
 
+void test_session_new_order_accepted() {
+    OrderEntrySession session{88};
+    Frame response{};
+
+    const auto msg = parse_request_frame(make_new_order_frame(1001, Side::Buy, 12345, 10, 1, 88));
+
+    assert(session.handle_message(msg, response));
+    assert(session.expected_sequence_number() == 2);
+    assert(session.active_order_count() == 1);
+
+    const auto header = decode_response_header(response, MessageType::Accepted);
+    assert(header.sequence_number == 1);
+    assert(header.session_id == 88);
+
+    Accepted accepted;
+    assert(decode_accepted(response, accepted) == DecodeStatus::Ok);
+    assert(accepted.client_order_id == 1001);
+    assert(accepted.order_handle == 1);
+}
+
+void test_session_duplicate_new_order_rejected() {
+    OrderEntrySession session{88};
+    Frame response{};
+
+    assert(session.handle_message(parse_request_frame(make_new_order_frame(1001, Side::Buy, 12345, 10, 1, 88)), response));
+    assert(session.handle_message(parse_request_frame(make_new_order_frame(1001, Side::Buy, 12345, 10, 2, 88)), response));
+
+    decode_response_header(response, MessageType::Rejected);
+
+    Rejected rejected;
+    assert(decode_rejected(response, rejected) == DecodeStatus::Ok);
+    assert(rejected.client_order_id == 1001);
+    assert(rejected.reason == RejectReason::DuplicateClientOrderId);
+    assert(session.expected_sequence_number() == 3);
+    assert(session.active_order_count() == 1);
+}
+
+void test_session_cancel_order() {
+    OrderEntrySession session{88};
+    Frame response{};
+
+    assert(session.handle_message(parse_request_frame(make_new_order_frame(1001, Side::Buy, 12345, 10, 1, 88)), response));
+    assert(session.handle_message(parse_request_frame(make_cancel_order_frame(1001, 2, 88)), response));
+
+    decode_response_header(response, MessageType::Cancelled);
+
+    Cancelled cancelled;
+    assert(decode_cancelled(response, cancelled) == DecodeStatus::Ok);
+    assert(cancelled.client_order_id == 1001);
+    assert(cancelled.order_handle == 1);
+    assert(session.active_order_count() == 0);
+
+    assert(session.handle_message(parse_request_frame(make_cancel_order_frame(1001, 3, 88)), response));
+    decode_response_header(response, MessageType::Rejected);
+
+    Rejected rejected;
+    assert(decode_rejected(response, rejected) == DecodeStatus::Ok);
+    assert(rejected.client_order_id == 1001);
+    assert(rejected.reason == RejectReason::UnknownClientOrderId);
+}
+
+void test_session_modify_order() {
+    OrderEntrySession session{88};
+    Frame response{};
+
+    assert(session.handle_message(parse_request_frame(make_new_order_frame(1001, Side::Buy, 12345, 10, 1, 88)), response));
+    assert(session.handle_message(parse_request_frame(make_modify_order_frame(1001, 12400, 20, 2, 88)), response));
+
+    decode_response_header(response, MessageType::Modified);
+
+    Modified modified;
+    assert(decode_modified(response, modified) == DecodeStatus::Ok);
+    assert(modified.client_order_id == 1001);
+    assert(modified.order_handle == 1);
+
+    assert(session.handle_message(parse_request_frame(make_modify_order_frame(1001, 12400, 0, 3, 88)), response));
+    decode_response_header(response, MessageType::Rejected);
+
+    Rejected rejected;
+    assert(decode_rejected(response, rejected) == DecodeStatus::Ok);
+    assert(rejected.client_order_id == 1001);
+    assert(rejected.reason == RejectReason::InvalidQuantity);
+}
+
+void test_session_bad_sequence_rejected() {
+    OrderEntrySession session{88};
+    Frame response{};
+
+    assert(session.handle_message(parse_request_frame(make_new_order_frame(1001, Side::Buy, 12345, 10, 2, 88)), response));
+    decode_response_header(response, MessageType::Rejected);
+
+    Rejected rejected;
+    assert(decode_rejected(response, rejected) == DecodeStatus::Ok);
+    assert(rejected.client_order_id == 1001);
+    assert(rejected.reason == RejectReason::BadSequence);
+    assert(session.expected_sequence_number() == 1);
+    assert(session.active_order_count() == 0);
+
+    assert(session.handle_message(parse_request_frame(make_new_order_frame(1001, Side::Buy, 12345, 10, 1, 88)), response));
+    decode_response_header(response, MessageType::Accepted);
+    assert(session.expected_sequence_number() == 2);
+    assert(session.active_order_count() == 1);
+}
+
+void test_session_logout_closes() {
+    OrderEntrySession session{88};
+    Frame response{};
+
+    const auto msg = parse_request_frame(make_control_frame(MessageType::Logout, 1, 88));
+
+    assert(!session.handle_message(msg, response));
+    decode_response_header(response, MessageType::Accepted);
+    assert(session.expected_sequence_number() == 2);
+}
+
 void test_parser_empty_and_single_frame() {
     Parser parser;
     DecodedMessage msg;
@@ -400,11 +535,11 @@ void test_parser_control_frames() {
 
     assert(parser.try_parse(msg) == Parser::Status::MessageReady);
     assert(msg.type == MessageType::Heartbeat);
-    assert(msg.header.sequence_numer == 100);
+    assert(msg.header.sequence_number == 100);
 
     assert(parser.try_parse(msg) == Parser::Status::MessageReady);
     assert(msg.type == MessageType::Logout);
-    assert(msg.header.sequence_numer == 101);
+    assert(msg.header.sequence_number == 101);
 }
 
 void test_parser_bad_frame_does_not_consume() {
@@ -485,6 +620,13 @@ int main() {
     test_response_codec_round_trip();
 
     test_bad_header_validation();
+
+    test_session_new_order_accepted();
+    test_session_duplicate_new_order_rejected();
+    test_session_cancel_order();
+    test_session_modify_order();
+    test_session_bad_sequence_rejected();
+    test_session_logout_closes();
 
     test_parser_empty_and_single_frame();
     test_parser_partial_frame();

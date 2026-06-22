@@ -1,4 +1,5 @@
 #include "order_entry/frame_parser.hpp"
+#include "order_entry/session.hpp"
 
 #include <arpa/inet.h>
 #include <asm-generic/socket.h>
@@ -20,6 +21,7 @@ using namespace llmes::order_entry;
 namespace {
 
 using Parser = FrameParser<4096>;
+using Frame = std::array<std::byte, kFrameSize>;
 
 void set_reuseaddr(int fd) {
     int yes = 1;
@@ -33,7 +35,7 @@ void set_tcp_nodelay(int fd) {
 
 
 void print_message(const DecodedMessage& msg) {
-    std::cout << "seq=" << msg.header.sequence_numer
+    std::cout << "seq=" << msg.header.sequence_number
     << " session=" << msg.header.session_id
     << " type=" << static_cast<std::uint16_t>(msg.type);
 
@@ -72,6 +74,22 @@ void print_message(const DecodedMessage& msg) {
     }
     
     std::cout << '\n';
+}
+
+bool send_all(int fd, const std::byte* data, std::size_t size) {
+    std::size_t sent = 0;
+
+    while (sent < size) {
+        const ssize_t n = ::send(fd, data + sent, size - sent, 0);
+        if (n <= 0) {
+            perror("send");
+            return false;
+        }
+
+        sent += static_cast<std::size_t>(n);
+    }
+
+    return true;
 }
 
 }   // namespace
@@ -116,6 +134,7 @@ int main() {
 
 
     Parser parser;
+    OrderEntrySession session{42};
     std::array<std::byte, 1024> read_buf{};
 
     while (true) {
@@ -158,10 +177,15 @@ int main() {
             }
 
             print_message(msg);
-            
+
+            Frame response{};
+            const bool keep_open = session.handle_message(msg, response);
+            if (!send_all(client_fd, response.data(), response.size())) {
+                break;
+            }
 
             // check if client closed
-            if (msg.type == MessageType::Logout) {
+            if (!keep_open) {
                 std::cout << "logout received\n";
                 ::close(client_fd);
                 ::close(listen_fd);

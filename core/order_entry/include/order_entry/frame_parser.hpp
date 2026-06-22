@@ -36,7 +36,7 @@ public:
         BufferFull
     };
 
-    // apeend bytes read by socket to internal buffer
+    // append bytes read by socket to internal buffer
     bool append(std::span<const std::byte> bytes);
 
     Status try_parse(DecodedMessage& out);

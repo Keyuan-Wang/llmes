@@ -8,7 +8,7 @@
 #include <span>
 
 
-// force little endian align
+// Explicit little-endian helpers
 
 namespace llmes::order_entry {
 
@@ -92,7 +92,7 @@ inline void encode_header(const MessageHeader& h, std::span<std::byte> out) {
     store_u16_le(out, h.off_message_type, static_cast<std::uint16_t>(h.message_type));
     store_u16_le(out, h.off_payload_length, h.payload_length);
     store_u16_le(out, h.off_flags, h.flags);
-    store_u64_le(out, h.off_sequence_numer, h.sequence_numer);
+    store_u64_le(out, h.off_sequence_number, h.sequence_number);
     store_u64_le(out, h.off_session_id, h.session_id);
     store_u32_le(out, h.off_reserved, h.reserved);
 }
@@ -107,7 +107,7 @@ inline DecodeStatus decode_header(std::span<const std::byte> in, MessageHeader& 
     out.message_type    = static_cast<MessageType>(load_u16_le(in, out.off_message_type));
     out.payload_length  = load_u16_le(in, out.off_payload_length);
     out.flags           = load_u16_le(in, out.off_flags);
-    out.sequence_numer  = load_u64_le(in, out.off_sequence_numer);
+    out.sequence_number  = load_u64_le(in, out.off_sequence_number);
     out.session_id      = load_u64_le(in, out.off_session_id);
     out.reserved        = load_u32_le(in, out.off_reserved);
 
@@ -167,8 +167,8 @@ inline DecodeStatus validate_header(const MessageHeader& h) {
     if (!is_known_request_type(h.message_type))
         return DecodeStatus::UnknownMessageType;
 
-    const auto exepcted = expected_payload_size(h.message_type);
-    if (h.payload_length != exepcted)
+    const auto expected = expected_payload_size(h.message_type);
+    if (h.payload_length != expected)
         return DecodeStatus::BadPayloadLength;
 
     return DecodeStatus::Ok;

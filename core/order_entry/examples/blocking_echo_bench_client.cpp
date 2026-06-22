@@ -52,7 +52,7 @@ Frame make_new_order() {
     Frame frame{};
 
     MessageHeader header;
-    header.sequence_numer = 1;
+    header.sequence_number = 1;
     header.session_id = 42;
 
     NewOrder order;

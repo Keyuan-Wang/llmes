@@ -45,12 +45,72 @@ bool send_all(int fd, const std::byte* data, std::size_t size) {
     return true;
 }
 
+bool recv_all(int fd, std::byte* data, std::size_t size) {
+    std::size_t received = 0;
+
+    while (received < size) {
+        const ssize_t n = ::recv(fd, data + received, size - received, 0);
+        if (n <= 0) {
+            perror("recv");
+            return false;
+        }
+
+        received += static_cast<std::size_t>(n);
+    }
+
+    return true;
+}
+
+void print_response(const Frame& frame) {
+    MessageHeader header;
+    if (decode_header(frame, header) != DecodeStatus::Ok ||
+        validate_response_header(header) != DecodeStatus::Ok) {
+        std::cout << "bad response\n";
+        return;
+    }
+
+    std::cout << "response seq=" << header.sequence_number
+              << " type=" << static_cast<std::uint16_t>(header.message_type);
+
+    switch (header.message_type) {
+        case MessageType::Accepted: {
+            Accepted accepted;
+            decode_accepted(frame, accepted);
+            std::cout << " Accepted"
+                      << " id=" << accepted.client_order_id
+                      << " handle=" << accepted.order_handle;
+            break;
+        }
+        case MessageType::Rejected: {
+            Rejected rejected;
+            decode_rejected(frame, rejected);
+            std::cout << " Rejected"
+                      << " id=" << rejected.client_order_id
+                      << " reason=" << static_cast<std::uint64_t>(rejected.reason);
+            break;
+        }
+        case MessageType::Cancelled: {
+            Cancelled cancelled;
+            decode_cancelled(frame, cancelled);
+            std::cout << " Cancelled"
+                      << " id=" << cancelled.client_order_id
+                      << " handle=" << cancelled.order_handle;
+            break;
+        }
+        default:
+            std::cout << " Other";
+            break;
+    }
+
+    std::cout << '\n';
+}
+
 
 Frame make_new_order(std::uint64_t seq) {
     Frame frame{};
 
     MessageHeader header;
-    header.sequence_numer = seq;
+    header.sequence_number = seq;
     header.session_id = 42;
 
     NewOrder order;
@@ -71,7 +131,7 @@ Frame make_cancel_order(std::uint64_t seq) {
     Frame frame{};
 
     MessageHeader header;
-    header.sequence_numer = seq;
+    header.sequence_number = seq;
     header.session_id = 42;
 
     CancelOrder order;
@@ -91,7 +151,7 @@ Frame make_logout(std::uint64_t seq) {
     MessageHeader header;
     header.message_type = MessageType::Logout;
     header.payload_length = kPayloadSize;
-    header.sequence_numer = seq;
+    header.sequence_number = seq;
     header.session_id = 42;
 
     encode_header(header, frame);
@@ -129,21 +189,37 @@ int main() {
     const auto new_order = make_new_order(1);
     const auto cancel_order = make_cancel_order(2);
     const auto logout = make_logout(3);
+    Frame response{};
 
     if (!send_all(fd, new_order.data(), new_order.size())) {
         ::close(fd);
         return 1;
     }
+    if (!recv_all(fd, response.data(), response.size())) {
+        ::close(fd);
+        return 1;
+    }
+    print_response(response);
 
     if (!send_all(fd, cancel_order.data(), cancel_order.size())) {
         ::close(fd);
         return 1;
     }
+    if (!recv_all(fd, response.data(), response.size())) {
+        ::close(fd);
+        return 1;
+    }
+    print_response(response);
 
     if (!send_all(fd, logout.data(), logout.size())) {
         ::close(fd);
         return 1;
     }
+    if (!recv_all(fd, response.data(), response.size())) {
+        ::close(fd);
+        return 1;
+    }
+    print_response(response);
 
     ::close(fd);
     return 0;
