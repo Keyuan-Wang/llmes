@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <vector>
 
 namespace {
 
@@ -14,30 +15,33 @@ void expect(bool ok, const char* msg) {
 }
 
 int main() {
-    llmes::matching_core::OrderBook book;
-
     // 1. push limit order to an empty book: only insert the orders but no matching
     {
+        std::vector<llmes::matching_core::Trade> trades;
+        llmes::matching_core::OrderBook<llmes::matching_core::VectorTradeSink> book(
+            llmes::matching_core::VectorTradeSink{trades});
         const auto r = book.add_limit_order(1, llmes::matching_core::Side::Buy, 100, 10, 1);
         expect(r.code == llmes::matching_core::ErrorCode::Success, "Limite rest success");
         expect(r.filled_quantity == 0, "no fill");
         expect(r.remaining_quantity == 10, "full qty rests");
-        expect(r.trades.empty(), "no trade");
+        expect(trades.empty(), "no trade");
         expect(r.handle != llmes::matching_core::kInvalidHandle, "resting order returns handle");
     }
 
     // 2. matching + push remaining orders in the book
     {
-        llmes::matching_core::OrderBook b;
+        std::vector<llmes::matching_core::Trade> trades;
+        llmes::matching_core::OrderBook<llmes::matching_core::VectorTradeSink> b(
+            llmes::matching_core::VectorTradeSink{trades});
         (void)b.add_limit_order(10, llmes::matching_core::Side::Sell, 100, 5, 1);
         const auto r = b.add_limit_order(11, llmes::matching_core::Side::Buy, 100, 12, 2);
         expect(r.code == llmes::matching_core::ErrorCode::Success, "cross Success");
         expect(r.filled_quantity == 5, "filled 5");
         expect(r.remaining_quantity == 7, "rest 7");
-        expect(r.trades.size() == 1, "one trade");
-        expect(r.trades[0].maker_order_id == 10, "maker id");
-        expect(r.trades[0].quantity == 5, "trade qty");
-      }
+        expect(trades.size() == 1, "one trade");
+        expect(trades[0].maker_order_id == 10, "maker id");
+        expect(trades[0].quantity == 5, "trade qty");
+    }
 
     // 3. market orders wipe all orders, reamining orders are canceled
     {
