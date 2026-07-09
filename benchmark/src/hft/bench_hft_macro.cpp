@@ -10,8 +10,8 @@
  * THE KEY DESIGN CHOICE:
  * All event parameters (RNG, cancel-target selection, tracking-map updates)
  * are pre-generated in Setup() -- which is outside the timed window. Pending
- * operations store stable business order IDs; each book instance maintains its
- * own local order_id -> handle map because handles are book-local locators.
+ * operations store stable business order IDs; the OrderBook resolves those IDs
+ * through its own live-order index.
  *
  * Reference: Gode & Sunder (1993), "Allocative Efficiency of Markets with
  * Zero-Intelligence Traders." JPE 101(1), 119-137.
