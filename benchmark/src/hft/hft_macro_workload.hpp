@@ -107,13 +107,13 @@ struct PendingOp {
 	MacroScenario scenario = MacroScenario::Unmeasured;
 
 	// kLimitAdd / kModify
-	matching::Side side = matching::Side::Buy;
+	llme::matching::Side side = llme::matching::Side::Buy;
 	std::int64_t price = 0;
 	std::uint64_t qty = 0;
 
 	// kCancel / kModify
 	std::uint64_t target_id = 0;
-	matching::OrderHandle target_handle{matching::kInvalidHandle};
+	llme::matching::OrderHandle target_handle{llme::matching::kInvalidHandle};
 
 	// kMarket
 	std::uint64_t market_qty = 0;
@@ -129,7 +129,7 @@ public:
 		const std::uint64_t warmup_events = 500'000;
 		const std::uint64_t pool = warmup_events + args.batch_size + 50000;
 
-		book_ = std::make_unique<matching::OrderBook>(pool);
+		book_ = std::make_unique<llme::matching::OrderBook>(pool);
 		event_rng_ = SplitMix64(args.seed + args.trial_id * 1000003ULL +
 														iter_idx * 9973ULL);
 		param_rng_ = SplitMix64(args.seed * 1337ULL + args.trial_id * 500009ULL +
@@ -220,7 +220,7 @@ public:
 private:
 	class ShadowOccupancyTree {
 	public:
-		static constexpr std::size_t kBitCount = matching::OccupancyTree::kBitCount;
+		static constexpr std::size_t kBitCount = llme::matching::OccupancyTree::kBitCount;
 		static constexpr std::size_t kL1WordCount = kBitCount / 64;
 
 		void reset() noexcept {
@@ -283,17 +283,17 @@ private:
 	};
 
 	struct RestingMeta {
-		matching::Side side = matching::Side::Buy;
+		llme::matching::Side side = llme::matching::Side::Buy;
 		std::int64_t price = 0;
 		std::uint64_t qty = 0;
 	};
 
 	struct HandleMeta {
-		matching::OrderHandle handle = matching::kInvalidHandle;
+		llme::matching::OrderHandle handle = llme::matching::kInvalidHandle;
 		std::uint64_t qty = 0;
 	};
 
-	std::unique_ptr<matching::OrderBook> book_;
+	std::unique_ptr<llme::matching::OrderBook> book_;
 	SplitMix64 event_rng_{42};
 	SplitMix64 param_rng_{42};
 	std::uint64_t id_counter_ = 0;
@@ -320,13 +320,13 @@ private:
 	std::unordered_map<std::int64_t, std::int64_t> ask_last_level_touch_;
 	std::uint64_t attribution_op_index_ = 0;
 
-	[[nodiscard]] ShadowOccupancyTree& shadow_tree(matching::Side side) noexcept {
-		return side == matching::Side::Buy ? bid_shadow_tree_ : ask_shadow_tree_;
+	[[nodiscard]] ShadowOccupancyTree& shadow_tree(llme::matching::Side side) noexcept {
+		return side == llme::matching::Side::Buy ? bid_shadow_tree_ : ask_shadow_tree_;
 	}
 
 	[[nodiscard]] std::unordered_map<std::int64_t, std::int64_t>&
-	last_level_touch(matching::Side side) noexcept {
-		return side == matching::Side::Buy ? bid_last_level_touch_
+	last_level_touch(llme::matching::Side side) noexcept {
+		return side == llme::matching::Side::Buy ? bid_last_level_touch_
 																	 : ask_last_level_touch_;
 	}
 
@@ -352,7 +352,7 @@ private:
 	}
 
 	void annotate_level_reuse(PendingAttribution& attribution,
-			matching::Side side, std::int64_t price) {
+			llme::matching::Side side, std::int64_t price) {
 		if constexpr (!EnableAttribution) return;
 		attribution.price_mod8 = static_cast<std::uint8_t>(
 				(static_cast<std::uint64_t>(price) & 7ULL));
@@ -369,7 +369,7 @@ private:
 	}
 
 	void annotate_add(PendingAttribution& attribution,
-			matching::Side side, std::int64_t price) {
+			llme::matching::Side side, std::int64_t price) {
 		if constexpr (!EnableAttribution) return;
 		annotate_level_reuse(attribution, side, price);
 		auto& tree = shadow_tree(side);
@@ -378,7 +378,7 @@ private:
 		attribution.occupancy_l1_popcount_before = tree.l1_popcount(idx);
 	}
 
-	void touch_level(matching::Side side, std::int64_t price) {
+	void touch_level(llme::matching::Side side, std::int64_t price) {
 		if constexpr (!EnableAttribution) return;
 		last_level_touch(side)[price] =
 				static_cast<std::int64_t>(attribution_op_index_);
@@ -392,7 +392,7 @@ private:
 	// only limit adds read a handle and record a distance.
 	void annotate_order_slot_reuse() {
 		if constexpr (!EnableAttribution) return;
-		std::unordered_map<matching::OrderHandle, std::int64_t> last_slot_acquire_op;
+		std::unordered_map<llme::matching::OrderHandle, std::int64_t> last_slot_acquire_op;
 		last_slot_acquire_op.reserve(pending_.size());
 
 		for (std::size_t i = 0; i < pending_.size(); ++i) {
@@ -403,9 +403,9 @@ private:
 				const auto res =
 						book_->add_limit_order(op.oid, op.side, op.price, op.qty, op.oid);
 				// A resting add is the only case that acquires a durable slot.
-				if (res.code == matching::ErrorCode::Success &&
+				if (res.code == llme::matching::ErrorCode::Success &&
 						res.remaining_quantity > 0 &&
-						res.handle != matching::kInvalidHandle) {
+						res.handle != llme::matching::kInvalidHandle) {
 					const auto it = last_slot_acquire_op.find(res.handle);
 					pending_attribution_[i].order_slot_reuse_distance_ops =
 							(it == last_slot_acquire_op.end())
@@ -429,19 +429,19 @@ private:
 		}
 	}
 
-	void set_shadow_level(matching::Side side, std::int64_t price) noexcept {
+	void set_shadow_level(llme::matching::Side side, std::int64_t price) noexcept {
 		if constexpr (!EnableAttribution) return;
 		shadow_tree(side).set(price_index(price));
 	}
 
-	void clear_shadow_level(matching::Side side, std::int64_t price) noexcept {
+	void clear_shadow_level(llme::matching::Side side, std::int64_t price) noexcept {
 		if constexpr (!EnableAttribution) return;
 		shadow_tree(side).clear(price_index(price));
 	}
 
 	[[nodiscard]] std::optional<std::int64_t> shadow_best_price(
-			matching::Side side) const noexcept {
-		if (side == matching::Side::Buy) {
+			llme::matching::Side side) const noexcept {
+		if (side == llme::matching::Side::Buy) {
 			const auto best = bid_shadow_tree_.template best<false>();
 			return best ? std::optional<std::int64_t>(*best) : std::nullopt;
 		}
@@ -450,22 +450,22 @@ private:
 	}
 
 	[[nodiscard]] static bool shadow_can_cross(
-			matching::Side taker_side,
+			llme::matching::Side taker_side,
 			std::int64_t limit_price,
 			std::int64_t best_opposite_price) noexcept {
-		return taker_side == matching::Side::Buy
+		return taker_side == llme::matching::Side::Buy
 						 ? limit_price >= best_opposite_price
 						 : limit_price <= best_opposite_price;
 	}
 
 	void apply_matching_attribution(
-			matching::Side taker_side,
+			llme::matching::Side taker_side,
 			std::optional<std::int64_t> limit_price,
-			const std::vector<matching::Trade>& trades) {
+			const std::vector<llme::matching::Trade>& trades) {
 		if constexpr (!EnableAttribution) return;
-		const matching::Side maker_side = taker_side == matching::Side::Buy
-																	 ? matching::Side::Sell
-																	 : matching::Side::Buy;
+		const llme::matching::Side maker_side = taker_side == llme::matching::Side::Buy
+																	 ? llme::matching::Side::Sell
+																	 : llme::matching::Side::Buy;
 		for (const auto& trade : trades) {
 			touch_level(maker_side, trade.price);
 		}
@@ -528,8 +528,8 @@ private:
 	void pending_limit_add() {
 		PendingOp op;
 		op.type = PendingOp::kLimitAdd;
-		op.side = (param_rng_.next() % 2 == 0) ? matching::Side::Buy
-																					 : matching::Side::Sell;
+		op.side = (param_rng_.next() % 2 == 0) ? llme::matching::Side::Buy
+																					 : llme::matching::Side::Sell;
 
 		std::int64_t const ref = (best_ask_ > 0) ? best_ask_ : 1000;
 		int offset = 0;
@@ -539,7 +539,7 @@ private:
 			r >>= 8;
 		}
 		if (offset == 0) offset = 1;
-		op.price = (op.side == matching::Side::Buy)
+		op.price = (op.side == llme::matching::Side::Buy)
 									 ? std::max<std::int64_t>(1, ref - offset - 1)
 									 : ref + offset;
 
@@ -554,7 +554,7 @@ private:
 
 		auto const res =
 				book_->add_limit_order(op.oid, op.side, op.price, op.qty, op.oid);
-		if (res.code == matching::ErrorCode::Success && res.trades.empty() &&
+		if (res.code == llme::matching::ErrorCode::Success && res.trades.empty() &&
 				res.remaining_quantity > 0) {
 			op.scenario = level_existed_before
 												? MacroScenario::AddRestExistingLevel
@@ -564,7 +564,7 @@ private:
 		}
 		apply_trade_fills(res.trades, &book_handles_);
 		apply_matching_attribution(op.side, op.price, res.trades);
-		if (res.code == matching::ErrorCode::Success &&
+		if (res.code == llme::matching::ErrorCode::Success &&
 				res.remaining_quantity > 0) {
 			track_add_predicted(op.oid, op.side, op.price, res.remaining_quantity);
 			book_handles_[op.oid] = HandleMeta{res.handle, res.remaining_quantity};
@@ -593,12 +593,12 @@ private:
 			}
 
 			auto const code = book_->cancel_order(book_handle_it->second.handle);
-			if (code != matching::ErrorCode::Success) {
+			if (code != llme::matching::ErrorCode::Success) {
 				book_handles_.erase(book_handle_it);
 				track_remove_predicted(target);
 				continue;
 			}
-			matching::OrderHandle const target_handle = book_handle_it->second.handle;
+			llme::matching::OrderHandle const target_handle = book_handle_it->second.handle;
 			book_handles_.erase(book_handle_it);
 
 			PendingOp op;
@@ -652,8 +652,8 @@ private:
 
 		PendingOp op;
 		op.type = PendingOp::kModify;
-		op.side = (param_rng_.next() % 2 == 0) ? matching::Side::Buy
-																					 : matching::Side::Sell;
+		op.side = (param_rng_.next() % 2 == 0) ? llme::matching::Side::Buy
+																					 : llme::matching::Side::Sell;
 		op.price = new_price;
 		op.qty = new_qty;
 		op.target_id = target;
@@ -669,7 +669,7 @@ private:
 
 		auto const res = book_->modify_order(book_handle_it->second.handle, op.side,
 																				 op.price, op.qty, op.oid);
-		if (res.code != matching::ErrorCode::Success) {
+		if (res.code != llme::matching::ErrorCode::Success) {
 			book_handles_.erase(book_handle_it);
 			track_remove_predicted(target);
 			pending_limit_add();
@@ -702,8 +702,8 @@ private:
 		PendingOp op;
 		op.type = PendingOp::kMarket;
 		op.scenario = MacroScenario::Unmeasured;
-		op.side = (param_rng_.next() % 2 == 0) ? matching::Side::Buy
-																					 : matching::Side::Sell;
+		op.side = (param_rng_.next() % 2 == 0) ? llme::matching::Side::Buy
+																					 : llme::matching::Side::Sell;
 
 		int const mroll = static_cast<int>(param_rng_.next() % 100);
 		if (mroll < 85) {
@@ -733,25 +733,25 @@ private:
 		case PendingOp::kLimitAdd: {
 			auto const res =
 					book_->add_limit_order(op.oid, op.side, op.price, op.qty, op.oid);
-			if (res.code == matching::ErrorCode::Success) ++ok;
+			if (res.code == llme::matching::ErrorCode::Success) ++ok;
 			break;
 		}
 		case PendingOp::kCancel: {
 			auto const code = book_->cancel_order(op.target_handle);
-			if (code == matching::ErrorCode::Success) ++ok;
+			if (code == llme::matching::ErrorCode::Success) ++ok;
 			break;
 		}
 		case PendingOp::kModify: {
 			auto const res = book_->modify_order(op.target_handle, op.side, op.price,
 																					 op.qty, op.oid);
-			if (res.code == matching::ErrorCode::Success) ++ok;
+			if (res.code == llme::matching::ErrorCode::Success) ++ok;
 			break;
 		}
 		case PendingOp::kMarket: {
 			auto const res =
 					book_->add_market_order(op.oid, op.side, op.market_qty, op.oid);
-			if (res.code == matching::ErrorCode::Success ||
-					res.code == matching::ErrorCode::MarketRemainderCancelled) {
+			if (res.code == llme::matching::ErrorCode::Success ||
+					res.code == llme::matching::ErrorCode::MarketRemainderCancelled) {
 				++ok;
 			}
 			break;
@@ -759,12 +759,12 @@ private:
 		}
 	}
 
-	void track_add_predicted(std::uint64_t id, matching::Side side,
+	void track_add_predicted(std::uint64_t id, llme::matching::Side side,
 													 std::int64_t price, std::uint64_t qty) {
 		track_remove_predicted(id);
 		resting_orders_[id] = RestingMeta{side, price, qty};
 		resting_ids_.push_back(id);
-		if (side == matching::Side::Buy) {
+		if (side == llme::matching::Side::Buy) {
 			++bid_level_counts_[price];
 		} else {
 			++ask_level_counts_[price];
@@ -776,7 +776,7 @@ private:
 		auto it = resting_orders_.find(id);
 		if (it == resting_orders_.end()) return;
 
-		if (it->second.side == matching::Side::Buy) {
+		if (it->second.side == llme::matching::Side::Buy) {
 			auto lc = bid_level_counts_.find(it->second.price);
 			if (lc != bid_level_counts_.end()) {
 				if (lc->second > 0) --lc->second;
@@ -793,7 +793,7 @@ private:
 		update_best_prices();
 	}
 
-	void apply_trade_fills(const std::vector<matching::Trade>& trades,
+	void apply_trade_fills(const std::vector<llme::matching::Trade>& trades,
 												 std::unordered_map<std::uint64_t, HandleMeta>* handles =
 														 nullptr) {
 		for (const auto& trade : trades) {
@@ -822,10 +822,10 @@ private:
 		for (const auto& [id, _] : resting_orders_) resting_ids_.push_back(id);
 	}
 
-	std::unique_ptr<matching::OrderBook> build_book_from_tracking(
+	std::unique_ptr<llme::matching::OrderBook> build_book_from_tracking(
 			std::size_t pool_capacity,
 			std::unordered_map<std::uint64_t, HandleMeta>& handles) {
-		auto book = std::make_unique<matching::OrderBook>(pool_capacity);
+		auto book = std::make_unique<llme::matching::OrderBook>(pool_capacity);
 		handles.clear();
 		std::vector<std::uint64_t> ids;
 		ids.reserve(resting_orders_.size());
@@ -838,7 +838,7 @@ private:
 			auto const& meta = it->second;
 			const auto res =
 					book->add_limit_order(id, meta.side, meta.price, meta.qty, id);
-			if (res.code == matching::ErrorCode::Success &&
+			if (res.code == llme::matching::ErrorCode::Success &&
 					res.remaining_quantity > 0) {
 				handles[id] = HandleMeta{res.handle, res.remaining_quantity};
 			}
@@ -851,18 +851,18 @@ private:
 		best_ask_ = ask_level_counts_.empty() ? 1000 : ask_level_counts_.begin()->first;
 	}
 
-	[[nodiscard]] bool has_price_level(matching::Side side,
+	[[nodiscard]] bool has_price_level(llme::matching::Side side,
 																		 std::int64_t price) const {
-		if (side == matching::Side::Buy) {
+		if (side == llme::matching::Side::Buy) {
 			return bid_level_counts_.contains(price);
 		}
 		return ask_level_counts_.contains(price);
 	}
 
 	bool do_limit_add() {
-		matching::Side const side =
-				(param_rng_.next() % 2 == 0) ? matching::Side::Buy
-																		 : matching::Side::Sell;
+		llme::matching::Side const side =
+				(param_rng_.next() % 2 == 0) ? llme::matching::Side::Buy
+																		 : llme::matching::Side::Sell;
 		std::int64_t const ref = (best_ask_ > 0) ? best_ask_ : 1000;
 		int offset = 0;
 		std::uint64_t r = param_rng_.next();
@@ -871,7 +871,7 @@ private:
 			r >>= 8;
 		}
 		if (offset == 0) offset = 1;
-		std::int64_t const price = (side == matching::Side::Buy)
+		std::int64_t const price = (side == llme::matching::Side::Buy)
 															 ? std::max<std::int64_t>(1, ref - offset - 1)
 															 : ref + offset;
 		static constexpr std::uint64_t kQtyTable[32] = {
@@ -881,7 +881,7 @@ private:
 		std::uint64_t const oid = id_counter_++;
 		auto const res = book_->add_limit_order(oid, side, price, qty, oid);
 		apply_trade_fills(res.trades, &book_handles_);
-		if (res.code == matching::ErrorCode::Success) {
+		if (res.code == llme::matching::ErrorCode::Success) {
 			if (res.remaining_quantity > 0) {
 				track_add_predicted(oid, side, price, res.remaining_quantity);
 				book_handles_[oid] = HandleMeta{res.handle, res.remaining_quantity};
@@ -902,7 +902,7 @@ private:
 		auto handle_it = book_handles_.find(target_id);
 		if (handle_it == book_handles_.end()) return false;
 		auto const code = book_->cancel_order(handle_it->second.handle);
-		if (code == matching::ErrorCode::Success) {
+		if (code == llme::matching::ErrorCode::Success) {
 			book_handles_.erase(handle_it);
 			track_remove_predicted(target_id);
 			if ((param_rng_.next() % 100) < 15) {
@@ -925,14 +925,14 @@ private:
 				old_price + ((param_rng_.next() % 2 == 0) ? -delta : delta);
 		std::uint64_t const new_qty = 1 + (param_rng_.next() % 20);
 		std::uint64_t const ts = id_counter_++;
-		matching::Side const side =
-				(param_rng_.next() % 2 == 0) ? matching::Side::Buy
-																		 : matching::Side::Sell;
+		llme::matching::Side const side =
+				(param_rng_.next() % 2 == 0) ? llme::matching::Side::Buy
+																		 : llme::matching::Side::Sell;
 		auto handle_it = book_handles_.find(target);
 		if (handle_it == book_handles_.end()) return do_limit_add();
 		auto const res =
 				book_->modify_order(handle_it->second.handle, side, new_price, new_qty, ts);
-		if (res.code == matching::ErrorCode::Success) {
+		if (res.code == llme::matching::ErrorCode::Success) {
 			book_handles_.erase(handle_it);
 			track_remove_predicted(target);
 			apply_trade_fills(res.trades, &book_handles_);
@@ -948,9 +948,9 @@ private:
 	bool do_market() {
 		std::uint64_t const total = resting_orders_.size();
 		if (total == 0) return do_limit_add();
-		matching::Side const side =
-				(param_rng_.next() % 2 == 0) ? matching::Side::Buy
-																		 : matching::Side::Sell;
+		llme::matching::Side const side =
+				(param_rng_.next() % 2 == 0) ? llme::matching::Side::Buy
+																		 : llme::matching::Side::Sell;
 		int const mroll = static_cast<int>(param_rng_.next() % 100);
 		std::uint64_t qty;
 		if (mroll < 85) {
@@ -963,8 +963,8 @@ private:
 		}
 		std::uint64_t const oid = id_counter_++;
 		auto const res = book_->add_market_order(oid, side, qty, oid);
-		if (res.code == matching::ErrorCode::Success ||
-				res.code == matching::ErrorCode::MarketRemainderCancelled) {
+		if (res.code == llme::matching::ErrorCode::Success ||
+				res.code == llme::matching::ErrorCode::MarketRemainderCancelled) {
 			apply_trade_fills(res.trades, &book_handles_);
 			return true;
 		}
@@ -1038,12 +1038,12 @@ private:
 						continue;
 					}
 					auto const code = book_->cancel_order(book_handle_it->second.handle);
-					if (code != matching::ErrorCode::Success) {
+					if (code != llme::matching::ErrorCode::Success) {
 						book_handles_.erase(book_handle_it);
 						track_remove_predicted(id);
 						continue;
 					}
-					matching::OrderHandle const target_handle =
+					llme::matching::OrderHandle const target_handle =
 							book_handle_it->second.handle;
 					book_handles_.erase(book_handle_it);
 					PendingOp op;

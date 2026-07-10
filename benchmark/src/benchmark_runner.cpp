@@ -35,8 +35,8 @@ using Clock = std::chrono::steady_clock;
 	*
 	* When the process is launched under
 	*   `perf record --control=fifo:<ctl>,<ack> -D -1 -- <bench> ...`
-	* and the FIFO paths are exported as @c LLMES_PERF_CTL_FIFO /
-	* @c LLMES_PERF_ACK_FIFO, this helper toggles sampling so that only the
+	* and the FIFO paths are exported as @c LLME_PERF_CTL_FIFO /
+	* @c LLME_PERF_ACK_FIFO, this helper toggles sampling so that only the
 	* measured RunOp batch is recorded.  Warmup, Setup(), and Teardown() run
 	* with sampling disabled, exactly mirroring the PMC enable/disable window.
 	*
@@ -51,8 +51,8 @@ class PerfRecordControl {
 	public:
 	PerfRecordControl() {
 #if defined(__linux__)
-		const char* ctl = std::getenv("LLMES_PERF_CTL_FIFO");
-		const char* ack = std::getenv("LLMES_PERF_ACK_FIFO");
+		const char* ctl = std::getenv("LLME_PERF_CTL_FIFO");
+		const char* ack = std::getenv("LLME_PERF_ACK_FIFO");
 		if (ctl == nullptr || ack == nullptr || ctl[0] == '\0' || ack[0] == '\0') {
 			return;
 		}

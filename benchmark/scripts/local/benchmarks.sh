@@ -13,7 +13,7 @@ if [[ "${1:-}" == "--dry-run" ]]; then
 fi
 
 if (( DRY_RUN == 0 )); then
-	cmake -S "$ROOT" -B "$ROOT/build" -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}" -DLLMES_BUILD_BENCHMARKS=ON
+	cmake -S "$ROOT" -B "$ROOT/build" -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}" -DLLME_BUILD_BENCHMARKS=ON
 	cmake --build "$ROOT/build" -j
 fi
 

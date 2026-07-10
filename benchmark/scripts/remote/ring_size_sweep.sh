@@ -40,7 +40,7 @@ FIXED_ORDERS="${FIXED_ORDERS:-}"
 INSTALL_DEPS="${INSTALL_DEPS:-1}"
 COMPARE_PREFIX="${COMPARE_PREFIX:-ring_size}"
 
-RING_BUFFER_H="${RING_BUFFER_H:-core/matching_core/include/matching/ring_buffer.hpp}"
+RING_BUFFER_H="${RING_BUFFER_H:-core/matching_engine/include/llme/matching/ring_buffer.hpp}"
 
 if [[ -z "$SERVER_IP" || -z "$REPO_URL" ]]; then
   echo "ERROR: SERVER_IP and REPO_URL are required"
@@ -132,7 +132,7 @@ for ((idx=0; idx<N; idx++)); do
   grep 'RingSize =' "$RING_BUFFER_H" | head -1 | tee "$REMOTE_ARTIFACTS_DIR/ring_size_${tag}.txt"
 
   rm -rf build
-  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DLLMES_BUILD_BENCHMARKS=ON
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DLLME_BUILD_BENCHMARKS=ON
   cmake --build build -j"$(nproc)"
 
   echo "--- ctest ($tag) ---"

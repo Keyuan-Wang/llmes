@@ -6,7 +6,7 @@
 
 #include "types.hpp"
 
-namespace matching {
+namespace llme::matching {
 
 class OrderPool {
 private:

@@ -119,8 +119,8 @@ ITERS=1
 The script builds `bench_hft_macro` with:
 
 ```text
-LLMES_PROFILE_HFT_MACRO_OPS=ON
-LLMES_PROFILE_HFT_MACRO_OP_PMCS=ON
+LLME_PROFILE_HFT_MACRO_OPS=ON
+LLME_PROFILE_HFT_MACRO_OP_PMCS=ON
 ```
 
 Then it runs `hft_macro` once per counter group and stores:

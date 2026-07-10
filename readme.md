@@ -1,6 +1,6 @@
-# llmes - Low-Latency Matching & Execution Simulator
+# low-latency-matching-engine — Low-Latency Matching & Execution Simulator
 
-`llmes` is a C++20 central limit order book built as a measured, phase-by-phase latency engineering project. It starts from a conventional `std::map` + `std::list` implementation and follows the evidence all the way to a handle-addressed, pool-backed, direct-indexed matching core.
+`low-latency-matching-engine` is a C++20 central limit order book built as a measured, phase-by-phase latency engineering project. It starts from a conventional `std::map` + `std::list` implementation and follows the evidence all the way to a handle-addressed, pool-backed, direct-indexed matching core.
 
 The project is as much about **how to optimize a matching engine correctly** as it is about the final implementation: every major design change has a benchmark artifact, rejected experiments are retained, and intrusive measurements are separated from the release performance gate.
 
@@ -48,14 +48,7 @@ Implemented:
 - deterministic HFT macro benchmark, PMC collection, per-scenario attribution, and isolated cloud runners;
 - correctness tests and benchmark smoke tests.
 
-Next system work:
-
-- SPSC queues for command/event transport;
-- single-owner matching-thread integration;
-- trade/event sink design;
-- network ingress and egress;
-- journal, replay, and recovery;
-- execution and risk components.
+The networking and concurrency layers (SPSC queues, epoll gateway, eventfd thread wakeup) live in the sibling repo [`low-latency-trading-gateway`](https://github.com/Keyuan-Wang/low-latency-trading-gateway). The two repos are designed to be composed but are independently buildable and benchmarkable.
 
 ## Architecture
 
@@ -428,8 +421,8 @@ Requirements:
 ```bash
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
-  -DLLMES_BUILD_TESTS=ON \
-  -DLLMES_BUILD_BENCHMARKS=ON
+  -DLLME_BUILD_TESTS=ON \
+  -DLLME_BUILD_BENCHMARKS=ON
 
 cmake --build build -j$(nproc)
 ctest --test-dir build --output-on-failure
@@ -441,8 +434,8 @@ For an LTO build:
 cmake -S . -B build-lto \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON \
-  -DLLMES_BUILD_TESTS=ON \
-  -DLLMES_BUILD_BENCHMARKS=ON
+  -DLLME_BUILD_TESTS=ON \
+  -DLLME_BUILD_BENCHMARKS=ON
 
 cmake --build build-lto -j$(nproc)
 ```
@@ -497,9 +490,9 @@ See [`benchmark/scripts/README.md`](benchmark/scripts/README.md) for the full lo
 ## Repository Layout
 
 ```text
-llmes/
-|-- core/matching_core/
-|   |-- include/matching/
+low-latency-matching-engine/
+|-- core/matching_engine/
+|   |-- include/llme/matching/
 |   |   |-- order_book.hpp
 |   |   |-- array_side_book.hpp
 |   |   |-- occupancy_tree.hpp
@@ -551,7 +544,7 @@ The final core is deliberately benchmark-focused rather than production-complete
 - The default side book covers 4096 prices and asserts that prices fall inside the configured range.
 - Order-pool capacity is fixed at construction; exhaustion is asserted rather than surfaced as a recoverable result.
 - Duplicate external IDs, cancel-before-add, malformed handles, and session policy are assumed to be validated by the gateway.
-- `AddResult::trades` is still a `std::vector<Trade>`; the next architecture stage is expected to move event delivery to a preallocated SPSC pipeline.
+- `AddResult::trades` is still a `std::vector<Trade>`; a production integration would move event delivery to the SPSC pipeline in [`low-latency-trading-gateway`](https://github.com/Keyuan-Wang/low-latency-trading-gateway).
 - The engine is single-threaded and contains no network, persistence, recovery, or risk layer.
 - The macro workload is synthetic. It is designed to expose HFT-like access patterns, not to claim fidelity to every venue or instrument.
 

@@ -5,7 +5,7 @@ target_include_directories(benchmark_runner_lib
 	PUBLIC
 		${CMAKE_CURRENT_SOURCE_DIR}/src
 )
-target_link_libraries(benchmark_runner_lib PUBLIC matching_core)
+target_link_libraries(benchmark_runner_lib PUBLIC llme_matching)
 
 # --- HFT macro benchmarks ---
 add_executable(bench_hft_macro

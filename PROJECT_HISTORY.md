@@ -340,7 +340,7 @@ The important process lesson is that the cache-miss hypothesis was not strong en
 The current master branch adds per-operation profiling to `hft_macro`, guarded by:
 
 ```cpp
-LLMES_PROFILE_HFT_MACRO_OPS
+LLME_PROFILE_HFT_MACRO_OPS
 ```
 
 The profiler separates mixed macro latency into operation classes:
@@ -502,7 +502,7 @@ The main findings from this repaired profile are:
 
 ### Design
 
-To move from operation-level attribution to function-level attribution inside the dominant `add_rest` path, an instrumentation feature was added behind `LLMES_PROFILE_ADD_REST_STAGES`. It wrapped each sub-stage of `add_limit_order` in a `__rdtsc()` + `steady_clock::now()` timer pair:
+To move from operation-level attribution to function-level attribution inside the dominant `add_rest` path, an instrumentation feature was added behind `LLME_PROFILE_ADD_REST_STAGES`. It wrapped each sub-stage of `add_limit_order` in a `__rdtsc()` + `steady_clock::now()` timer pair:
 
 - `validation`
 - `match`
@@ -522,7 +522,7 @@ A cloud run (commit `237820e`, batch 100000) reported each stage at roughly 139-
 
 The production `perf record` run (next section) contradicted the stage data. The reconciliation showed the stage profiler was unreliable: the operations being timed are ~5-40 ns each, while a `__rdtsc()` + `steady_clock::now()` pair is itself tens of ns. The probe cost was comparable to or larger than the probed region, so the measurement reported mostly its own overhead and **flattened** the real spread. The evidence is internal to the stage data itself: `node_init` (a 4-field struct assignment), `fifo_append` (a 4-pointer linked-list append), and `pool_acquire` (a free-list pop) all reported ~140 cycles, which none of those operations can genuinely cost.
 
-The conclusion was that per-sub-stage timing instrumentation is not a viable profiling method for this engine. The entire feature was removed: `add_rest_stage_profile.{hpp,cpp}`, the `order_book.cpp` and `bench_hft_macro.cpp` instrumentation, the CMake options, and `run_hft_macro_add_rest_stage_profile.sh`. The operation-level profiling path (`LLMES_PROFILE_HFT_MACRO_OPS` / `LLMES_PROFILE_HFT_MACRO_OP_PMCS`) was later removed as well, because even whole-operation inline timing/PMC attribution still changes the measured hot path and is superseded by window-isolated production `perf record`.
+The conclusion was that per-sub-stage timing instrumentation is not a viable profiling method for this engine. The entire feature was removed: `add_rest_stage_profile.{hpp,cpp}`, the `order_book.cpp` and `bench_hft_macro.cpp` instrumentation, the CMake options, and `run_hft_macro_add_rest_stage_profile.sh`. The operation-level profiling path (`LLME_PROFILE_HFT_MACRO_OPS` / `LLME_PROFILE_HFT_MACRO_OP_PMCS`) was later removed as well, because even whole-operation inline timing/PMC attribution still changes the measured hot path and is superseded by window-isolated production `perf record`.
 
 ## Phase 5: Window-Isolated `perf record` Production Profiling
 
@@ -530,13 +530,13 @@ The conclusion was that per-sub-stage timing instrumentation is not a viable pro
 
 The next profiling step was a production-mode `perf record` for instruction- and function-level attribution with no instrumentation overhead. The problem is that `bench_hft_macro`'s `Setup()` is heavy and runs on every measured iteration (~5,000 seed adds, a 500,000-event warmup replay, two book rebuilds, and full batch pre-generation). A naive `perf record ./bench_hft_macro` would be dominated by that scaffolding.
 
-The solution reuses the existing PMC enable/disable window idea via `perf record --control=fifo`. A new env-guarded helper in the runner (`benchmark_runner.cpp::PerfRecordControl`) enables sampling only around the measured `RunOp` batch; warmup, `Setup()`, and `Teardown()` run with sampling disabled. The helper is inert (zero overhead) unless the FIFO paths are provided via `LLMES_PERF_CTL_FIFO` / `LLMES_PERF_ACK_FIFO`. Driver script:
+The solution reuses the existing PMC enable/disable window idea via `perf record --control=fifo`. A new env-guarded helper in the runner (`benchmark_runner.cpp::PerfRecordControl`) enables sampling only around the measured `RunOp` batch; warmup, `Setup()`, and `Teardown()` run with sampling disabled. The helper is inert (zero overhead) unless the FIFO paths are provided via `LLME_PERF_CTL_FIFO` / `LLME_PERF_ACK_FIFO`. Driver script:
 
 ```text
 benchmark/scripts/run_hft_macro_perf_record.sh
 ```
 
-The profiling binary is built Release + `-g` with no `LLMES_PROFILE_*` macros, so the recorded code path is the exact production engine.
+The profiling binary is built Release + `-g` with no `LLME_PROFILE_*` macros, so the recorded code path is the exact production engine.
 
 ### Cloud Run
 
@@ -661,7 +661,7 @@ As of the Phase 11 endpoint:
 - active price-level storage: `ArraySideBook<IsAsk>` with 4096 direct-addressed levels per side and a fixed two-level `OccupancyTree`
 - `PriceLevel` is 16 bytes; orders remain pool-backed and linked intrusively within each price level
 - Phase 8b's lazy ghost cleanup remains active; the Phase 8c eager-retirement metadata experiment was rejected
-- intrusive per-operation HFT macro profiling (`LLMES_PROFILE_HFT_MACRO_OPS` / `LLMES_PROFILE_HFT_MACRO_OP_PMCS`) has been removed from benchmark code and scripts
+- intrusive per-operation HFT macro profiling (`LLME_PROFILE_HFT_MACRO_OPS` / `LLME_PROFILE_HFT_MACRO_OP_PMCS`) has been removed from benchmark code and scripts
 - the `add_rest` stage-profiling feature was added and then **removed** as a non-viable measurement method (probe overhead dwarfed the probed region)
 - the benchmark suite now builds the batched `hft_macro` benchmark and the diagnostic `hft_macro_scenarios` collector; the older legacy/HFT micro executables have been removed
 - per-scenario collection records every `add_rest_existing_level`, `add_rest_new_level`, and `cancel_order` sample to CSV using isolated workload replays
@@ -670,7 +670,7 @@ As of the Phase 11 endpoint:
 - Phase 10 rejected PriceLevel and order-slot cache reuse as explanations for the common `add_rest_new_level` p99/p999 tail; per-call timing remains diagnostic only
 - Phase 11 selected LTO as the performance Release configuration: 15.630 ns/op, 63.99M ops/s, and 94.81 instructions/op across the 50-seed comparison
 - PGO and LTO+PGO did not beat LTO alone; PGO benchmark support was removed
-- the matching-engine and order-book core is frozen; future work moves to SPSC event transport, thread ownership, networking, and persistence
+- the matching-engine and order-book core is frozen; networking, SPSC transport, and thread ownership now live in the sibling repo [`low-latency-trading-gateway`](https://github.com/Keyuan-Wang/low-latency-trading-gateway)
 - ChunkPool benchmark artifacts are recorded but the design is not the active baseline
 - PMR price-level node pooling was tested after Phase 6a; it reduced cache misses but increased instruction count and regressed macro latency, so it is not the active direction
 - unified Phase 1–6 narrative: `report/phase_evolution_phase1_to_phase6.md`, CSV `server_results/hft_macro_cross_phase_summary_20260603.csv`
@@ -1214,10 +1214,4 @@ This does not conflict with the macro improvement. Per-call `rdtscp` measurement
 
 LTO is the final performance Release configuration. PGO is not retained.
 
-The matching-engine and order-book core is now considered complete for this project stage. Further assembly-level tuning would cost more time than the remaining gains justify. The next work moves to the system around the core:
-
-- SPSC event and trade transport;
-- single-owner matching-thread integration;
-- network input/output;
-- journal and recovery;
-- execution and risk components.
+The matching-engine and order-book core is now considered complete for this project stage. Further assembly-level tuning would cost more time than the remaining gains justify. The networking and concurrency layers (SPSC queues, epoll gateway, eventfd notification) are developed in the sibling repo [`low-latency-trading-gateway`](https://github.com/Keyuan-Wang/low-latency-trading-gateway).

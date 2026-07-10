@@ -15,7 +15,7 @@
 #   sampling only around the timed RunOp batch (see PerfRecordControl in
 #   benchmark_runner.cpp), mirroring the PMC enable/disable window.
 #
-# The profiling binary is built as Release + `-g` with NO LLMES_PROFILE_*
+# The profiling binary is built as Release + `-g` with NO LLME_PROFILE_*
 # macros, so the annotated `add_limit_order` is the exact production code path
 # measured by the campaign -- not an instrumented variant.
 #
@@ -137,8 +137,8 @@ cmake -S "$ROOT" -B "$BUILD_DIR" \
 	-DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
 	-DCMAKE_CXX_FLAGS_RELEASE="$CXX_FLAGS_RELEASE" \
 	-DCMAKE_EXE_LINKER_FLAGS_RELEASE="$LINK_FLAGS_RELEASE" \
-	-DLLMES_BUILD_BENCHMARKS=ON \
-	-DLLMES_BUILD_TESTS=OFF
+	-DLLME_BUILD_BENCHMARKS=ON \
+	-DLLME_BUILD_TESTS=OFF
 cmake --build "$BUILD_DIR" --target bench_hft_macro -j"$(nproc)"
 
 if [[ ! -x "$BIN" ]]; then
@@ -172,8 +172,8 @@ fi
 # `-D -1` starts with events disabled; the runner sends 'enable' via the
 # control FIFO only around the RunOp batch. Env vars hand the FIFO paths to
 # the child (inherited through perf).
-LLMES_PERF_CTL_FIFO="$CTL_FIFO" \
-LLMES_PERF_ACK_FIFO="$ACK_FIFO" \
+LLME_PERF_CTL_FIFO="$CTL_FIFO" \
+LLME_PERF_ACK_FIFO="$ACK_FIFO" \
 "${RUN_PREFIX[@]}" perf record \
 	-o "$PERF_DATA" \
 	--control=fifo:"$CTL_FIFO","$ACK_FIFO" \
@@ -219,7 +219,7 @@ done
 	echo "scenario      : hft_macro"
 	echo "version_tag   : $VERSION_TAG"
 	echo "commit_sha    : $COMMIT_SHA"
-	echo "build_type    : $BUILD_TYPE (+ -g, no LLMES_PROFILE_*)"
+	echo "build_type    : $BUILD_TYPE (+ -g, no LLME_PROFILE_*)"
 	echo "enable_lto    : $ENABLE_LTO"
 	echo "events        : $EVENTS"
 	echo "freq          : $FREQ"

@@ -5,7 +5,7 @@
 #include <cassert>
 #include <vector>
 
-namespace matching {
+namespace llme::matching {
 
 /**
  * @brief Freelist allocator for @ref PriceLevel objects on one book side.
@@ -71,4 +71,4 @@ private:
     Slot*             free_head_ = nullptr;
 };
 
-}   // namespace matching
+}  // namespace llme::matching

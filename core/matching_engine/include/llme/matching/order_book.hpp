@@ -1,6 +1,6 @@
 /**
  * @file order_book.hpp
- * @brief Central limit order book (Phase 1): declarations for @ref matching::OrderBook and related types.
+ * @brief Central limit order book (Phase 1): declarations for @ref llme::matching::OrderBook and related types.
  */
 
 #pragma once
@@ -16,7 +16,7 @@
 #include "order_pool.hpp"
 #include "array_side_book.hpp"
 
-namespace matching {
+namespace llme::matching {
 /**
  * @brief Price-level container for one side of the book.
  *
@@ -140,4 +140,4 @@ private:
     std::uint64_t matching_engine_market(AddResult& out, std::uint64_t order_id, std::uint64_t quantity);
 };
 
-}  // namespace matching
+}  // namespace llme::matching

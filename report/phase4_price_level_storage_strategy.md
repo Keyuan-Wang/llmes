@@ -141,7 +141,7 @@ using BidBook = std::map<std::int64_t, PriceLevel, std::greater<>>;
 Acceptance criteria:
 
 - `cmake` configures successfully.
-- `matching_core_tests` pass.
+- `llme_matching_tests` pass.
 - `benchmark_smoke_test` passes.
 - HFT canary benchmarks run with `VERSION_TAG=v0_map_baseline`.
 
@@ -335,7 +335,7 @@ Every version must use the same benchmark matrix.
 ### Build and Test
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DLLMES_BUILD_BENCHMARKS=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DLLME_BUILD_BENCHMARKS=ON
 cmake --build build -j$(nproc)
 ctest --test-dir build --output-on-failure
 ```
@@ -509,7 +509,7 @@ The initial per-scenario summary showed phase4a as the apparent winner:
 
 ### Bug Discovery: Cancel-Miss Accounting Drift
 
-Per-operation profiling (`LLMES_PROFILE_HFT_MACRO_OPS`) exposed the problem. The
+Per-operation profiling (`LLME_PROFILE_HFT_MACRO_OPS`) exposed the problem. The
 `hft_macro` benchmark's Setup() was generating `PendingOp` batches from a
 **predictive tracking map** that could drift from actual book state:
 

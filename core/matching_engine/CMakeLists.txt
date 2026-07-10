@@ -1,19 +1,19 @@
-add_library(matching_core
+add_library(llme_matching
   src/order_book.cpp
   src/occupancy_tree.cpp
 )
 
-target_include_directories(matching_core
+target_include_directories(llme_matching
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-if(LLMES_BUILD_TESTS)
-  add_executable(matching_core_tests
+if(LLME_BUILD_TESTS)
+  add_executable(llme_matching_tests
     tests/order_book_test.cpp
   )
-  target_link_libraries(matching_core_tests PRIVATE matching_core)
-  add_test(NAME matching_core_tests COMMAND matching_core_tests)
+  target_link_libraries(llme_matching_tests PRIVATE llme_matching)
+  add_test(NAME llme_matching_tests COMMAND llme_matching_tests)
 
   find_package(GTest QUIET)
   if(NOT GTest_FOUND)
@@ -27,11 +27,11 @@ if(LLMES_BUILD_TESTS)
     FetchContent_MakeAvailable(googletest)
   endif()
 
-  add_executable(matching_core_gtests
+  add_executable(llme_matching_gtests
     tests/order_book_add_result_gtest.cpp
   )
-  target_link_libraries(matching_core_gtests PRIVATE matching_core GTest::gtest_main)
+  target_link_libraries(llme_matching_gtests PRIVATE llme_matching GTest::gtest_main)
 
   include(GoogleTest)
-  gtest_discover_tests(matching_core_gtests)
+  gtest_discover_tests(llme_matching_gtests)
 endif()

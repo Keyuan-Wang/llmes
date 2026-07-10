@@ -6,7 +6,7 @@
 #include <array>
 
 
-namespace matching {
+namespace llme::matching {
 
 class OccupancyTree {
 public:
@@ -53,4 +53,4 @@ private:
 
 };
 
-}   // namespace matching
+}  // namespace llme::matching

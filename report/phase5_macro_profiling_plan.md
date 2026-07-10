@@ -172,7 +172,7 @@ The function-level result confirms that `add_rest` is not dominated by a single 
 
 The `get_or_create()` return type was changed from `PriceLevel&` to `std::pair<PriceLevel*, bool>`, using `try_emplace` instead of `operator[]`, to allow the profiling instrumentation to distinguish existing-level lookup from new-level creation. The `AddRestCallProfile` accumulates timing for whichever path was taken, then commits both to the global snapshot at the end of the `add_limit_order` call.
 
-A cloud profiling run was executed with both `LLMES_PROFILE_HFT_MACRO_OPS=ON` and `LLMES_PROFILE_ADD_REST_STAGES=ON`.
+A cloud profiling run was executed with both `LLME_PROFILE_HFT_MACRO_OPS=ON` and `LLME_PROFILE_ADD_REST_STAGES=ON`.
 
 Cloud run:
 
@@ -289,15 +289,15 @@ The level_lookup_existing vs level_create_new split is now recorded. The remaini
 
 `bench_hft_macro`'s `Setup()` is heavy and runs on **every measured iteration**: ~5,000 seed adds, a 500,000-event warmup replay, two full book rebuilds (`build_book_from_tracking`), and complete batch pre-generation. A naive `perf record ./bench_hft_macro` would be dominated by this scaffolding (`generate_pending_one`, `build_book_from_tracking`, RNG, tracking maps), and `perf report` would bury the engine hot path.
 
-To avoid this, a `perf record --control=fifo` window was added that mirrors the existing PMC enable/disable pattern. The runner (`benchmark_runner.cpp::PerfRecordControl`) enables sampling only around the measured `RunOp` batch — warmup, `Setup()`, and `Teardown()` run with sampling disabled. The helper is inert (zero overhead) unless the FIFO paths are provided via `LLMES_PERF_CTL_FIFO` / `LLMES_PERF_ACK_FIFO`. Driver script: `benchmark/scripts/run_hft_macro_perf_record.sh`.
+To avoid this, a `perf record --control=fifo` window was added that mirrors the existing PMC enable/disable pattern. The runner (`benchmark_runner.cpp::PerfRecordControl`) enables sampling only around the measured `RunOp` batch — warmup, `Setup()`, and `Teardown()` run with sampling disabled. The helper is inert (zero overhead) unless the FIFO paths are provided via `LLME_PERF_CTL_FIFO` / `LLME_PERF_ACK_FIFO`. Driver script: `benchmark/scripts/run_hft_macro_perf_record.sh`.
 
-The profiling binary is built **Release + `-g`, with no `LLMES_PROFILE_*` macros**, so the recorded code path is the exact production engine measured by the campaign — not an instrumented variant.
+The profiling binary is built **Release + `-g`, with no `LLME_PROFILE_*` macros**, so the recorded code path is the exact production engine measured by the campaign — not an instrumented variant.
 
 ### Run Configuration
 
 ```text
 branch/commit: 635f1c8
-binary:        Release + -g, no LLMES_PROFILE_* macros
+binary:        Release + -g, no LLME_PROFILE_* macros
 events:        cycles, branch-misses (freq 8000, call-graph dwarf)
 orders:        100000
 levels:        100
@@ -385,11 +385,11 @@ The corrected conclusion: **the `std::map` level container is a real cost center
 
 ### Stage Profiling Is Retired
 
-The consequence of the analysis above is that **per-sub-stage timing instrumentation is not a viable profiling method for this engine** and has been removed from the codebase (the `LLMES_PROFILE_ADD_REST_STAGES` feature, `add_rest_stage_profile.{hpp,cpp}`, the `order_book.cpp` / `bench_hft_macro.cpp` instrumentation, the CMake options, and `run_hft_macro_add_rest_stage_profile.sh`).
+The consequence of the analysis above is that **per-sub-stage timing instrumentation is not a viable profiling method for this engine** and has been removed from the codebase (the `LLME_PROFILE_ADD_REST_STAGES` feature, `add_rest_stage_profile.{hpp,cpp}`, the `order_book.cpp` / `bench_hft_macro.cpp` instrumentation, the CMake options, and `run_hft_macro_add_rest_stage_profile.sh`).
 
 The reason, stated as data: the operations being timed are ~5–40 ns each, while a `__rdtsc()` + `steady_clock::now()` pair is itself on the order of tens of ns. When the probe costs as much as the probed region, the measurement reports mostly its own overhead and **compresses** real differences toward a uniform value (every "cheap" stage reported ~140 cycles). Any conclusion drawn from the relative ordering of such stages is therefore untrustworthy — as demonstrated by the inverted "std::map is cheapest" result that the production profile overturned.
 
-Going forward, hot-path attribution uses **`perf record` with the window-isolated control FIFO** (this section) for cost-center and branch-miss attribution, and the existing **operation-level profiling** (`LLMES_PROFILE_HFT_MACRO_OPS`, which times whole operations with a single timer pair and whose op shares are corroborated by the perf function-level breakdown) for op-mix weighting. Sub-operation timing via inline instrumentation is no longer used.
+Going forward, hot-path attribution uses **`perf record` with the window-isolated control FIFO** (this section) for cost-center and branch-miss attribution, and the existing **operation-level profiling** (`LLME_PROFILE_HFT_MACRO_OPS`, which times whole operations with a single timer pair and whose op shares are corroborated by the perf function-level breakdown) for op-mix weighting. Sub-operation timing via inline instrumentation is no longer used.
 
 ## Revised Optimization Plan: Replace The Cancel-Index Hash Map
 

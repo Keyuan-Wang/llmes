@@ -82,7 +82,7 @@ Raw artifacts:
 | `absl::flat_hash_map` index | | | 2e+ | ✓ | ✓ | ✓ | ✓ | ✗ |
 | HFT micro + **`hft_macro`** | partial | partial | ✓ | **primary** | ✓ | ✓ | ✓ | ✓ (handle-aware bench) |
 | Legacy `overall` / seven scenarios | ✓ | ✓ | ✓ | retired as primary | | | | |
-| `LLMES_PROFILE_HFT_MACRO_OPS` | | | | | | | ✓ | ✓ |
+| `LLME_PROFILE_HFT_MACRO_OPS` | | | | | | | ✓ | ✓ |
 | Window-isolated **`perf record`** | | | | | | | ✓ | ✓ |
 | `add_rest` stage timers | | | | | | | ✗ retired | ✗ |
 | **`*-devalidated`** branches | ✓ | ✓ | ✓ | — | ✓ | ✓ | ✓ | N/A |
@@ -188,7 +188,7 @@ Raw artifacts:
 
 **Benchmark / tooling (progressive):**
 
-1. **`LLMES_PROFILE_HFT_MACRO_OPS`** — op-class shares (add_rest, cancel_hit, …). Early runs had bogus `cancel_miss` until planning-book replay fix.
+1. **`LLME_PROFILE_HFT_MACRO_OPS`** — op-class shares (add_rest, cancel_hit, …). Early runs had bogus `cancel_miss` until planning-book replay fix.
 2. **`add_rest` stage profiling** — **retired** (probe cost ≫ measured regions).
 3. **Window-isolated `perf record`** (`PerfRecordControl`, FIFO) — authoritative: ~50% cycles in cancel-index hash ops; ~18% in `std::map` `get_or_create` on adds (`report/phase5_macro_profiling_plan.md`).
 
@@ -242,7 +242,7 @@ Raw artifacts:
 VERSIONS='phase1-finale-devalidated:p1-deval,...,phase4-finale-devalidated:p4fin-deval' \
   SCENARIOS=hft_macro ORDERS=100000 LEVELS=100 BATCH_SIZES=100000 \
   ITERS=1 WARMUP_ITERS=1 TRIALS=10 \
-  SERVER_IP=178.105.250.133 REPO_URL=https://github.com/Keyuan-Wang/llmes.git \
+  SERVER_IP=178.105.250.133 REPO_URL=https://github.com/Keyuan-Wang/low-latency-matching-engine.git \
   INSTALL_DEPS=0 LOCAL_OUT_DIR=./server_results/devalidated_hft_macro_20260603_150410 \
   bash benchmark/scripts/run_remote_compare.sh
 

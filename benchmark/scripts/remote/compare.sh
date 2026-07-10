@@ -308,7 +308,7 @@ for ((idx=0; idx<N; idx++)); do
 
   # Rebuild — previous version's build dir may be incompatible
   rm -rf build
-  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DLLMES_BUILD_BENCHMARKS=ON
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DLLME_BUILD_BENCHMARKS=ON
   cmake --build build -j"$(nproc)"
 
   echo "--- ctest ($tag) ---"

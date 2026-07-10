@@ -22,7 +22,7 @@ Run configuration from `SUMMARY.md`:
 - workload: `hft_macro`
 - `orders=100000`, `levels=100`
 - `batch_size=1000000`, `iters=40`
-- build: Release + `-g`, no `LLMES_PROFILE_*`
+- build: Release + `-g`, no `LLME_PROFILE_*`
 - profiling window: RunOp batch only, via `perf --control=fifo`
 - baseline: `153.81 instructions/op`, `77.93 cycles/op`, `1.488 branch misses/op`, `0.0334 cache misses/op`
 

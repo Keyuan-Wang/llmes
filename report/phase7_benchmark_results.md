@@ -94,7 +94,7 @@ RingSize=16 is optimal for the current workload. It matches 32 in performance wh
 
 ## Experiment 4: Production `perf record` (RingSize=16)
 
-Window-isolated RunOp profiling on `master` @ `fd1436c` (`RingSize=16` default). Script: `benchmark/scripts/run_hft_macro_perf_record.sh`. Build: Release + `-g`, no `LLMES_PROFILE_*`. Sampling: `cycles,branch-misses` @ 8000 Hz, enabled only around the measured RunOp batch (`perf --control=fifo`, `-D -1`). Workload: `orders=100000`, `levels=100`, `batch_size=1_000_000`, `iters=40`. Samples: 20,783 cycles events, 0 lost.
+Window-isolated RunOp profiling on `master` @ `fd1436c` (`RingSize=16` default). Script: `benchmark/scripts/run_hft_macro_perf_record.sh`. Build: Release + `-g`, no `LLME_PROFILE_*`. Sampling: `cycles,branch-misses` @ 8000 Hz, enabled only around the measured RunOp batch (`perf --control=fifo`, `-D -1`). Workload: `orders=100000`, `levels=100`, `batch_size=1_000_000`, `iters=40`. Samples: 20,783 cycles events, 0 lost.
 
 Wall-clock latency for this run: avg **32.6 ns/op** over the 1M batch — not directly comparable to the 100k macro campaign numbers above.
 

@@ -50,7 +50,7 @@ Phase 11 did not change the matching engine or order-book data structures. It ad
 | `9701fdc` | Add GCC LTO/PGO build matrix, training window, validation seeds, and cross-seed aggregation |
 | `cbfb874` | Reorganize benchmark scripts and add LTO support to the scenario runner |
 
-There is no `core/matching_core` difference between the Phase 10 endpoint and the Phase 11 benchmark commits.
+There is no `core/matching_engine` difference between the Phase 10 endpoint and the Phase 11 benchmark commits.
 
 ## Test Environment
 

@@ -50,7 +50,7 @@ struct ScenarioSample {
 	std::uint64_t replay_iter_idx = 0;
 	std::uint64_t op_index = 0;
 	std::uint64_t scenario_call_index = 0;
-	matching::Side side = matching::Side::Buy;
+	llme::matching::Side side = llme::matching::Side::Buy;
 	std::int64_t price = 0;
 	std::uint64_t qty = 0;
 	benchmark_runner::hft::OccupancySetPath occupancy_set_path =
@@ -198,8 +198,8 @@ void ParseArgs(int argc, char** argv, ScenarioArgs& args) {
 	return {ParseFocusOne(focus)};
 }
 
-[[nodiscard]] const char* SideName(matching::Side side) noexcept {
-	return side == matching::Side::Buy ? "buy" : "sell";
+[[nodiscard]] const char* SideName(llme::matching::Side side) noexcept {
+	return side == llme::matching::Side::Buy ? "buy" : "sell";
 }
 
 void RunUntimedWarmup(const benchmark_runner::Args& args,
