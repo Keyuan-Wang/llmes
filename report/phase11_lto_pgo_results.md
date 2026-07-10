@@ -248,17 +248,23 @@ Final decision: keep per-scenario measurement for diagnosis, but do not use its 
 
 ## New Performance Baseline
 
-The Phase 11 LTO build becomes the performance reference for future system work:
+The Phase 11 LTO build becomes the performance reference for future system work. A later cross-phase campaign re-validated the frozen core:
 
-| Metric | New baseline |
-|---|---:|
-| Average latency | 15.63 ns/op |
-| Throughput | 63.99 Mops/s |
-| Cycles/op | 57.25 |
-| Instructions/op | 94.81 |
-| Branches/op | 17.07 |
-| Branch misses/op | 1.228 |
-| Cache misses/op | 0.02096 |
+| Metric | `pgo_compare` LTO (50 seeds) | Final validated (`matching_core_campaign_20260622`) |
+|---|---:|---:|
+| Average latency | 15.63 ns/op | **14.86 ns/op** |
+| Throughput | 63.99 Mops/s | **67.28 Mops/s** |
+| Cycles/op | 57.25 | **54.81** |
+| Instructions/op | 94.81 | **94.83** |
+| Branches/op | 17.07 | **17.08** |
+| Branch misses/op | 1.228 | 1.234 |
+| Cache misses/op | 0.02096 | 0.0203 |
+
+Primary validated artifact:
+
+```text
+server_results/matching_core_campaign_20260622_204849/
+```
 
 These values are specific to the Hetzner CCX23 environment, GCC 15.2.0, and the current HFT macro workload.
 
@@ -291,6 +297,7 @@ Future work moves outside the core:
 ## Artifacts
 
 - Compiler matrix: `server_results/hft_macro/pgo_compare/pgo_compare_20260614_113205/`
+- Final validated campaign: `server_results/matching_core_campaign_20260622_204849/`
 - LTO perf record: `server_results/hft_macro/perf_record/hft_macro_perf_record_20260614_115103/`
 - LTO per-scenario run: `server_results/hft_macro/scenarios_tuned/hft_macro_scenarios_tuned_20260614_120210/`
 - Non-LTO per-scenario reference: `server_results/hft_macro/scenarios_tuned/hft_macro_scenarios_tuned_20260613_193319/`

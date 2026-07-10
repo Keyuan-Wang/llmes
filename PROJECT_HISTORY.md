@@ -36,6 +36,7 @@ The notes below are based on:
 - `server_results/hft_macro/scenarios_tuned/hft_macro_scenarios_tuned_20260613_162525/`
 - `server_results/hft_macro/scenarios_tuned/hft_macro_scenarios_tuned_20260613_193319/`
 - `server_results/hft_macro/pgo_compare/pgo_compare_20260614_113205/`
+- `server_results/matching_core_campaign_20260622_204849/`
 - `server_results/hft_macro/perf_record/hft_macro_perf_record_20260614_115103/`
 - `server_results/hft_macro/scenarios_tuned/hft_macro_scenarios_tuned_20260614_120210/`
 
@@ -668,7 +669,8 @@ As of the Phase 11 endpoint:
 - cloud measurement runs on Hetzner CCX23; `benchmark/scripts/remote/compare.sh` applies the tested CPU/NUMA/IRQ/workqueue/realtime tuning after boot-time isolation setup
 - `nohz_full` reduced benchmark-CPU softirqs by roughly an order of magnitude but did not improve p99, so Linux-system tuning is considered complete for this VM
 - Phase 10 rejected PriceLevel and order-slot cache reuse as explanations for the common `add_rest_new_level` p99/p999 tail; per-call timing remains diagnostic only
-- Phase 11 selected LTO as the performance Release configuration: 15.630 ns/op, 63.99M ops/s, and 94.81 instructions/op across the 50-seed comparison
+- Phase 11 selected LTO as the performance Release configuration: 15.630 ns/op, 63.99M ops/s, and 94.81 instructions/op across the 50-seed `pgo_compare` comparison
+- A later cross-phase campaign (`matching_core_campaign_20260622`, `main` @ `8200c67`, 10 trials) re-validated the frozen core at **14.86 ns/op**, **67.28M ops/s**, **54.81 cycles/op**, and **94.83 instructions/op**
 - PGO and LTO+PGO did not beat LTO alone; PGO benchmark support was removed
 - the matching-engine and order-book core is frozen; networking, SPSC transport, and thread ownership now live in the sibling repo [`low-latency-trading-gateway`](https://github.com/Keyuan-Wang/low-latency-trading-gateway)
 - ChunkPool benchmark artifacts are recorded but the design is not the active baseline
@@ -689,6 +691,7 @@ Cloud runner: `benchmark/scripts/run_remote_compare.sh` on Hetzner CCX23.
 | `server_results/devalidated_hft_macro_20260603_150410/` | 8 branches: p1, p2a–e, p4a, p4-finale (all `*-devalidated`) |
 | `server_results/compare_master_vs_phase5_20260603_143852/` | `master` vs `phase5-finale-devalidated` (skipped re-run) |
 | `server_results/hft_macro_cross_phase_summary_20260603.csv` | Merged headline latency/PMC row per phase |
+| `server_results/matching_core_campaign_20260622_204849/` | Final validated `main` @ `8200c67` campaign |
 
 Headline `hft_macro` at `orders=100000`, `levels=100`, 10 trials (devalidated unless noted):
 
@@ -707,6 +710,8 @@ Headline `hft_macro` at `orders=100000`, `levels=100`, 10 trials (devalidated un
 | Phase 7a (ring + cold map) | 23.2 | 43.1M |
 | Phase 7b (+ PriceLevelPool) | 21.2 | 47.3M |
 | Phase 7c (+ short-function inline) | 19.3 | 51.7M |
+| Phase 8b (array side book) | 17.2 | 58.1M |
+| Phase 11 LTO (`main` @ `8200c67`, validated) | **14.86** | **67.28M** |
 
 Phase 1–2a rows are O(N)-cancel bound and not comparable to 2b+ for ranking. Phase 6 uses handle-aware benchmark scope (handles resolved in `Setup()`). Phase 7 adds the hot ring / cold map price-level storage on top of the handle-based core, then a dedicated price-level pool, then header-only forced inlining for the small pool/handle helpers. See the Phase 7 section below for the full progression table.
 
@@ -932,8 +937,9 @@ Phase 7 validates the Phase 6b+ hypothesis: the next useful lever after handle-b
 | Phase 7b | 21.2 | 47.3M | + PriceLevelPool |
 | Phase 7c | 19.3 | 51.7M | + header-only/always_inline short helpers |
 | Phase 8b | 17.2 | 58.1M | unified array side book + fixed occupancy tree |
+| Phase 11 LTO | **14.86** | **67.28M** | cross-TU optimization + final validation |
 
-Phase 1 → Phase 8b: roughly `2170 -> 17.2 ns/op`, about a 124x throughput improvement on the headline macro workload. Phase 1–2a rows are O(N)-cancel bound and not comparable to 2b+ for ranking.
+Phase 1 → Phase 11: roughly `2170 -> 14.86 ns/op`, about a **146x** throughput improvement on the headline macro workload. Phase 1–2a rows are O(N)-cancel bound and not comparable to 2b+ for ranking.
 
 The next step was a fresh production profile on Phase 7c before choosing a Phase 8 target. The Phase 7b profile remained useful for broad shape, but its pool acquire/release/resolve costs were partially superseded by Phase 7c. The older Phase 6a profile was superseded because its `std::map get_or_create` bottleneck had been structurally replaced.
 
@@ -1213,5 +1219,21 @@ This does not conflict with the macro improvement. Per-call `rdtscp` measurement
 ### Final Decision
 
 LTO is the final performance Release configuration. PGO is not retained.
+
+A later cross-phase validation campaign confirmed the frozen core on the same HFT macro gate:
+
+```text
+server_results/matching_core_campaign_20260622_204849/
+```
+
+| Metric | Value |
+|---|---:|
+| Average latency | **14.86 ns/op** (95% CI 14.79–14.94) |
+| Throughput | **67.28M ops/s** |
+| Cycles/op | **54.81** |
+| Instructions/op | **94.83** |
+| Branches/op | **17.08** |
+
+Settings: `8200c67`, LTO enabled, 10 trials, seed 42, `chrt -f 95`, Linux isolation on Hetzner CCX23.
 
 The matching-engine and order-book core is now considered complete for this project stage. Further assembly-level tuning would cost more time than the remaining gains justify. The networking and concurrency layers (SPSC queues, epoll gateway, eventfd notification) are developed in the sibling repo [`low-latency-trading-gateway`](https://github.com/Keyuan-Wang/low-latency-trading-gateway).

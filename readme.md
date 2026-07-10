@@ -6,22 +6,32 @@ The project is as much about **how to optimize a matching engine correctly** as 
 
 ## Headline Results
 
-Final Phase 11 result on the HFT macro workload:
+Final validated result on the HFT macro workload (`matching_core_campaign_20260622`, `main` @ `8200c67`, LTO, 10 trials, `chrt -f 95` + Linux isolation):
+
+| Metric | Value |
+|---|---:|
+| Average latency | **14.86 ns/op** (95% CI 14.79–14.94) |
+| Throughput | **67.28 Mops/s** |
+| Cycles/op | **54.81** |
+| Instructions/op | **94.83** |
+| Branches/op | **17.08** |
+
+Primary final artifact: [`server_results/matching_core_campaign_20260622_204849/`](server_results/matching_core_campaign_20260622_204849/)
+
+Phase 11 LTO compiler matrix (50 seeds, [`pgo_compare_20260614`](server_results/hft_macro/pgo_compare/pgo_compare_20260614_113205/)):
 
 | Metric | Baseline Release | Release + LTO | Change |
 |---|---:|---:|---:|
-| Average latency | 17.589 ns/op | **15.630 ns/op** | **-11.1%** |
-| Throughput | 56.86 Mops/s | **63.99 Mops/s** | **+12.5%** |
-| Cycles/op | 64.62 | **57.25** | **-11.4%** |
-| Instructions/op | 127.67 | **94.81** | **-25.7%** |
-| Branches/op | 25.06 | **17.07** | **-31.9%** |
-| Text size | 95,810 B | **83,491 B** | **-12.9%** |
+| Average latency | 17.589 ns/op | 15.630 ns/op | **-11.1%** |
+| Throughput | 56.86 Mops/s | 63.99 Mops/s | **+12.5%** |
+| Cycles/op | 64.62 | 57.25 | **-11.4%** |
+| Instructions/op | 127.67 | 94.81 | **-25.7%** |
+| Branches/op | 25.06 | 17.07 | **-31.9%** |
+| Text size | 95,810 B | 83,491 B | **-12.9%** |
 
 LTO beat the baseline on **all 50 paired validation seeds**. PGO and LTO+PGO were tested and rejected because neither beat LTO alone.
 
-Across the full project history, the headline macro path moved from roughly **2170 ns/op in Phase 1 to 15.63 ns/op in Phase 11**. That is about a **139x reduction in average operation latency**. The comparison spans API and benchmark-contract improvements as well as data-structure work, so individual phase gains should be read from their paired experiments rather than treated as one perfectly controlled A/B test.
-
-Primary final artifact: [`server_results/hft_macro/pgo_compare/pgo_compare_20260614_113205/`](server_results/hft_macro/pgo_compare/pgo_compare_20260614_113205/)
+Across the full project history, the headline macro path moved from roughly **2170 ns/op in Phase 1 to 14.86 ns/op at the final validated campaign**. That is about a **146x reduction in average operation latency**. The comparison spans API and benchmark-contract improvements as well as data-structure work, so individual phase gains should be read from their paired experiments rather than treated as one perfectly controlled A/B test.
 
 ## What This Project Demonstrates
 
@@ -207,7 +217,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 | Phase 7b | 21.2 | 47.3M ops/s | Dedicated `PriceLevelPool` |
 | Phase 7c | 19.3 | 51.7M ops/s | Profile-guided forced inlining |
 | Phase 8b | 17.2 | 58.1M ops/s | Unified array side book |
-| Phase 11 LTO | **15.63** | **63.99M ops/s** | Cross-TU optimization |
+| Phase 11 LTO | **14.86** | **67.28M ops/s** | Cross-TU optimization + final validation |
 
 ## Engineering Evolution: Why, How, Gain
 
@@ -393,7 +403,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Compare baseline, LTO, PGO, and LTO+PGO builds. Train PGO on 10 seeds and validate all modes on 50 separate paired seeds.
 
-**Gain:** LTO delivered the final 15.630 ns/op result and removed 25.7% of instructions. PGO alone was 1.3% slower than baseline; LTO+PGO was 1.0% slower than LTO. PGO support was removed, LTO became the performance configuration, and the matching core was frozen.
+**Gain:** LTO delivered 15.630 ns/op in the 50-seed compiler matrix and removed 25.7% of instructions. A later cross-phase campaign re-validated `main` @ `8200c67` at **14.86 ns/op** and **67.28 Mops/s**. PGO alone was 1.3% slower than baseline; LTO+PGO was 1.0% slower than LTO. PGO support was removed, LTO became the performance configuration, and the matching core was frozen.
 
 ## Lessons from Rejected Experiments
 
