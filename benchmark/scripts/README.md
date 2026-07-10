@@ -48,12 +48,12 @@ Examples:
 
 ```bash
 # Single-branch benchmark (replaces the old bench.sh)
-SERVER_IP=1.2.3.4 REPO_URL=https://github.com/you/llmes.git \
+SERVER_IP=1.2.3.4 REPO_URL=https://github.com/you/low-latency-matching-engine.git \
   VERSIONS="master:baseline" TRIALS=10 \
   bash benchmark/scripts/remote/compare.sh
 
 # Two-branch A/B comparison
-SERVER_IP=1.2.3.4 REPO_URL=https://github.com/you/llmes.git \
+SERVER_IP=1.2.3.4 REPO_URL=https://github.com/you/low-latency-matching-engine.git \
   VERSIONS="master:new,phase9:old" \
   bash benchmark/scripts/remote/compare.sh
 

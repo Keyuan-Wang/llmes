@@ -8,7 +8,7 @@ set -euo pipefail
 # All versions run on the same machine in the same session → environmentally clean.
 #
 # Usage:
-#   SERVER_IP=1.2.3.4 REPO_URL=git@github.com:you/llmes.git \
+#   SERVER_IP=1.2.3.4 REPO_URL=git@github.com:you/low-latency-matching-engine.git \
 #     bash benchmark/scripts/remote/compare.sh
 #
 # Versions are specified as a single comma-separated list of  commit:label  pairs:
@@ -33,7 +33,7 @@ REPO_URL="${REPO_URL:-}"
 VERSIONS="${VERSIONS:-phase2b:phase2b,phase2c:phase2c,phase2d:phase2d,phase2e:phase2e}"
 
 # --- remote paths ---
-REMOTE_ROOT="${REMOTE_ROOT:-/root/llmes-bench}"
+REMOTE_ROOT="${REMOTE_ROOT:-/root/llme-bench}"
 REMOTE_REPO_DIR="${REMOTE_REPO_DIR:-$REMOTE_ROOT/repo}"
 REMOTE_ARTIFACTS_DIR="${REMOTE_ARTIFACTS_DIR:-$REMOTE_ROOT/artifacts}"
 REMOTE_TARBALL="${REMOTE_TARBALL:-$REMOTE_ROOT/bench_compare_artifacts.tgz}"
@@ -84,7 +84,7 @@ INSTALL_DEPS="${INSTALL_DEPS:-1}"
 if [[ -z "$SERVER_IP" ]]; then
   echo "ERROR: SERVER_IP is required"
   echo "Usage:"
-  echo "  SERVER_IP=1.2.3.4 REPO_URL=git@github.com:you/llmes.git bash benchmark/scripts/remote/compare.sh"
+  echo "  SERVER_IP=1.2.3.4 REPO_URL=git@github.com:you/low-latency-matching-engine.git bash benchmark/scripts/remote/compare.sh"
   exit 1
 fi
 

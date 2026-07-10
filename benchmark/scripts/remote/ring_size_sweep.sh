@@ -4,7 +4,7 @@ set -euo pipefail
 # Sweep RingSize on a single branch (default: master) and compare hft_macro results.
 #
 # Usage:
-#   SERVER_IP=1.2.3.4 REPO_URL=https://github.com/you/llmes.git \
+#   SERVER_IP=1.2.3.4 REPO_URL=https://github.com/you/low-latency-matching-engine.git \
 #     bash benchmark/scripts/remote/ring_size_sweep.sh
 
 SERVER_IP="${SERVER_IP:-}"
@@ -16,7 +16,7 @@ REPO_URL="${REPO_URL:-}"
 BRANCH="${BRANCH:-master}"
 RING_SIZES="${RING_SIZES:-8,16,32,64}"
 
-REMOTE_ROOT="${REMOTE_ROOT:-/root/llmes-bench}"
+REMOTE_ROOT="${REMOTE_ROOT:-/root/llme-bench}"
 REMOTE_REPO_DIR="${REMOTE_REPO_DIR:-$REMOTE_ROOT/repo}"
 REMOTE_ARTIFACTS_DIR="${REMOTE_ARTIFACTS_DIR:-$REMOTE_ROOT/artifacts}"
 REMOTE_TARBALL="${REMOTE_TARBALL:-$REMOTE_ROOT/bench_ring_size_artifacts.tgz}"

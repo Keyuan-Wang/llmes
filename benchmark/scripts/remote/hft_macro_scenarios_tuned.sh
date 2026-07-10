@@ -14,7 +14,7 @@ REPO_URL="${REPO_URL:-}"
 BRANCH="${BRANCH:-master}"
 COMMIT_SHA="${COMMIT_SHA:-}"
 
-REMOTE_ROOT="${REMOTE_ROOT:-/root/llmes-bench}"
+REMOTE_ROOT="${REMOTE_ROOT:-/root/llme-bench}"
 REMOTE_REPO_DIR="${REMOTE_REPO_DIR:-$REMOTE_ROOT/repo}"
 REMOTE_ARTIFACTS_DIR="${REMOTE_ARTIFACTS_DIR:-$REMOTE_ROOT/artifacts}"
 REMOTE_TARBALL="${REMOTE_TARBALL:-$REMOTE_ROOT/hft_macro_scenarios_tuned_artifacts.tgz}"
@@ -67,7 +67,7 @@ SYNC_LOCAL_SCRIPTS="${SYNC_LOCAL_SCRIPTS:-1}"
 REMOTE_SYNC_TARBALL="${REMOTE_SYNC_TARBALL:-$REMOTE_ROOT/hft_macro_scenarios_scripts_sync.tgz}"
 
 if [[ -z "$SERVER_IP" || -z "$REPO_URL" ]]; then
-	echo "Usage: SERVER_IP=1.2.3.4 REPO_URL=git@github.com:you/llmes.git $0" >&2
+	echo "Usage: SERVER_IP=1.2.3.4 REPO_URL=git@github.com:you/low-latency-matching-engine.git $0" >&2
 	exit 1
 fi
 
