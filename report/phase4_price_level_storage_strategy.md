@@ -127,6 +127,8 @@ optimizations at once and then being unable to explain the result.
 
 ## Version Plan
 
+> **Status (post-Phase 8):** V0 and V1 were implemented. V2 (`absl::btree_map`) was skipped. V3 telemetry was partially done during Phase 7 development. V4 (hot ring + cold map) was implemented in Phase 7. V5 (hot bitmap) evolved into the `OccupancyTree` in Phase 8. V6 (cold container experiments) was superseded when Phase 8 replaced the hot/cold split entirely with a unified fixed-array side book. See [`phase7_hot_ring_cold_map_design.md`](phase7_hot_ring_cold_map_design.md), [`phase8_fixed_array_design.md`](phase8_fixed_array_design.md), and [`phase8_array_side_book_results.md`](phase8_array_side_book_results.md) for the designs that replaced this plan.
+
 ### V0: Restore `std::map` Baseline
 
 **Goal**: return to a buildable, testable reference implementation.
@@ -142,7 +144,6 @@ Acceptance criteria:
 
 - `cmake` configures successfully.
 - `llme_matching_tests` pass.
-- `benchmark_smoke_test` passes.
 - HFT canary benchmarks run with `VERSION_TAG=v0_map_baseline`.
 
 This version is the reference for all later changes.
@@ -497,8 +498,6 @@ A 10-trial, 8-micro + 1-macro campaign was run comparing `master` (with
 ChunkPool at kChunkSize=16/32/64/128/256) against `phase4a` (the `PriceLevel`
 wrapped behind `SideBook`, no ChunkPool).
 
-Artifacts: `benchmark/results/campaign_20260601_1319/`
-
 The initial per-scenario summary showed phase4a as the apparent winner:
 
 | Scenario | Best chunk result | phase4a |
@@ -557,8 +556,6 @@ map stays in sync with what `book_` will see during timed execution.
 A focused campaign comparing the repaired `master` (OrderPool) against
 `phase4-finale` (ChunkPool, kChunkSize=16/32/64/128/256), hft_macro only,
 1 trial each:
-
-**Artifacts:** `benchmark/results/macro_master_vs_phase4_finale_chunkSweep_20260601/`
 
 | Version | Architecture | ops/s | avg_ns | vs master |
 |---|---|---|---|---|
@@ -681,6 +678,8 @@ check sequence** (steps 1–2), not in order storage layout.
 ---
 
 ## Recommended Next Step
+
+> **Status (post-Phase 8):** These recommendations were partially followed. Price-locality telemetry was gathered during Phase 7 development, confirming near-best concentration. The `std::map` was replaced first with a hot ring + cold map (Phase 7), then with a unified fixed-array side book (Phase 8). The profiling-driven approach recommended here was the method used throughout Phases 5–8.
 
 With the ChunkPool experiment recorded and the OrderPool baseline established,
 the next Phase 4 work should:

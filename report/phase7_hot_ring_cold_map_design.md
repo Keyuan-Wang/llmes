@@ -1,5 +1,7 @@
 # Phase 7: Hot Ring Buffer + Cold Map Design
 
+> **Status (post-Phase 8):** This hot ring + cold map design was superseded by Phase 8's unified fixed-array side book (`ArraySideBook`). The ring buffer validated that direct price-offset indexing was faster than `std::map` traversal, but the ring/map boundary maintenance (`reanchor_to` + `erase_best`) consumed nearly as many cycles as the ring saved. Phase 8 generalized the idea into a single fixed-range array with a hierarchical occupancy tree, eliminating the hot/cold split entirely. See [`phase8_fixed_array_design.md`](phase8_fixed_array_design.md) for the rationale and [`phase8_array_side_book_results.md`](phase8_array_side_book_results.md) for the results. This document remains as the design record for the Phase 7 intermediate architecture.
+
 ## Motivation
 
 The Phase 6a window-isolated `perf record` shows `add_limit_order` consuming 55.3% of all RunOp cycles, with `std::map`'s `get_or_create` (`lower_bound` + `try_emplace` + RB-tree rebalance) accounting for 28%. This is the single largest hot-path bottleneck.

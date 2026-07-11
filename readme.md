@@ -1,4 +1,4 @@
-# low-latency-matching-engine — Low-Latency Matching & Execution Simulator
+# Low-Latency Matching & Execution Simulator
 
 `low-latency-matching-engine` is a C++20 central limit order book built as a measured, phase-by-phase latency engineering project. It starts from a conventional `std::map` + `std::list` implementation and follows the evidence all the way to a handle-addressed, pool-backed, direct-indexed matching core.
 
@@ -16,9 +16,6 @@ Final validated result on the HFT macro workload (`matching_core_campaign_202606
 | Instructions/op | **94.83** |
 | Branches/op | **17.08** |
 
-Primary final artifact: [`server_results/matching_core_campaign_20260622_204849/`](server_results/matching_core_campaign_20260622_204849/)
-
-Phase 11 LTO compiler matrix (50 seeds, [`pgo_compare_20260614`](server_results/hft_macro/pgo_compare/pgo_compare_20260614_113205/)):
 
 | Metric | Baseline Release | Release + LTO | Change |
 |---|---:|---:|---:|
@@ -56,7 +53,7 @@ Implemented:
 - pooled intrusive order storage;
 - trade collection through `AddResult`;
 - deterministic HFT macro benchmark, PMC collection, per-scenario attribution, and isolated cloud runners;
-- correctness tests and benchmark smoke tests.
+- correctness tests.
 
 The networking and concurrency layers (SPSC queues, epoll gateway, eventfd thread wakeup) live in the sibling repo [`low-latency-trading-gateway`](https://github.com/Keyuan-Wang/low-latency-trading-gateway). The two repos are designed to be composed but are independently buildable and benchmarkable.
 
@@ -152,7 +149,7 @@ Empty non-best levels are retired lazily. Eagerly clearing every level when its 
 
 ### HFT Macro Workload
 
-The release benchmark is a deterministic Zero-Intelligence-style event stream with HFT-shaped locality:
+The release benchmark is a deterministic Zero-Intelligence-style event stream with HFT-shaped locality (see the [benchmark design report](report/phase3_hft_benchmark_design.md) for the empirical microstructure research behind this workload):
 
 | Event | Target share |
 |---|---:|
@@ -227,7 +224,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Store price levels in `std::map`; store orders at each level in `std::list`; find cancel and modify targets by scanning the book.
 
-**Gain:** A trustworthy functional baseline and test oracle. Performance was intentionally poor: per-order allocation and O(N) cancellation produced roughly 2170 ns/op on the later unified macro campaign.
+**Gain:** A trustworthy functional baseline and test oracle. Performance was intentionally poor: per-order allocation and O(N) cancellation produced roughly 2170 ns/op on the later unified macro campaign. ([detailed report](report/phase1_vs_phase2_report.md))
 
 ### Phase 2a - Pool Storage and Intrusive FIFO
 
@@ -235,7 +232,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Replace list nodes with a preallocated `std::vector<Order>` pool and intrusive `prev`/`next` links owned by `PriceLevel`.
 
-**Gain:** Legacy scenario throughput improved by 19-98%; cancel cache misses fell by 87-91%. The macro remained O(N)-cancel bound, so headline throughput barely changed.
+**Gain:** Legacy scenario throughput improved by 19-98%; cancel cache misses fell by 87-91%. The macro remained O(N)-cancel bound, so headline throughput barely changed. ([detailed report](report/phase1_vs_phase2_report.md))
 
 ### Phase 2b - O(1) Cancel Index
 
@@ -243,7 +240,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Add `std::unordered_map<OrderId, Order*>` and enough parent metadata to unlink an order directly from its level.
 
-**Gain:** Cancel-hit throughput rose from about 17K/s to 5.8M/s; cancel-miss throughput rose from 8.5K/s to 15.3M/s. The mixed workload jumped from thousands to millions of operations per second, despite hash maintenance slowing pure add/match paths.
+**Gain:** Cancel-hit throughput rose from about 17K/s to 5.8M/s; cancel-miss throughput rose from 8.5K/s to 15.3M/s. The mixed workload jumped from thousands to millions of operations per second, despite hash maintenance slowing pure add/match paths. ([detailed report](report/phase1_vs_phase2_report.md))
 
 ### Phase 2c - Open Addressing with Tombstones
 
@@ -251,7 +248,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Implement a custom open-addressed cancel index with tombstone deletion.
 
-**Gain:** Negative result. The macro regressed from 11.0M to 7.8M ops/s because tombstones lengthened probe chains and increased cache misses.
+**Gain:** Negative result. The macro regressed from 11.0M to 7.8M ops/s because tombstones lengthened probe chains and increased cache misses. ([hash table comparison](report/phase2b_to_phase_2e_comparison.md))
 
 ### Phase 2d - Robin Hood Hashing
 
@@ -259,7 +256,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Use Robin Hood insertion with backward-shift deletion.
 
-**Gain:** Negative result. Throughput remained about 7.8M ops/s; lower instruction count could not offset worse CPI and memory stalls.
+**Gain:** Negative result. Throughput remained about 7.8M ops/s; lower instruction count could not offset worse CPI and memory stalls. ([hash table comparison](report/phase2b_to_phase_2e_comparison.md))
 
 ### Phase 2e - Swiss Table
 
@@ -267,7 +264,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Replace the cancel index with `absl::flat_hash_map`.
 
-**Gain:** 11.9M ops/s and 84 ns/op: 52% faster than the custom tables and about 8% faster than Phase 2b. This became the final in-core hash-table design before the identity boundary was later changed entirely.
+**Gain:** 11.9M ops/s and 84 ns/op: 52% faster than the custom tables and about 8% faster than Phase 2b. This became the final in-core hash-table design before the identity boundary was later changed entirely. ([hash table comparison](report/phase2b_to_phase_2e_comparison.md))
 
 ### Phase 3 - HFT Benchmark Redesign
 
@@ -275,7 +272,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Introduce HFT micro scenarios and the 45/48/5/2 Zero-Intelligence macro stream. Move RNG, cancel-target selection, and operation planning outside the timed window.
 
-**Gain:** A credible decision metric. It overturned the apparent promise of the custom hash tables and established `hft_macro` as the primary optimization gate.
+**Gain:** A credible decision metric. It overturned the apparent promise of the custom hash tables and established `hft_macro` as the primary optimization gate. ([benchmark design](report/phase3_hft_benchmark_design.md))
 
 ### Phase 4a - Side-Book Abstraction
 
@@ -283,7 +280,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Wrap each side behind `empty()`, `best_price()`, `best_level()`, `get_or_create()`, and `erase_best()`.
 
-**Gain:** Nearly performance-neutral at 39.3 ns/op, but it created the ownership boundary that made the Phase 7 and Phase 8 replacements possible.
+**Gain:** Nearly performance-neutral at 39.3 ns/op, but it created the ownership boundary that made the Phase 7 and Phase 8 replacements possible. ([price-level strategy](report/phase4_price_level_storage_strategy.md))
 
 ### Phase 4b - ChunkPool Experiment
 
@@ -291,7 +288,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Build chunk-owned level storage and sweep chunk sizes 16, 32, 64, 128, and 256.
 
-**Gain:** Rejected. The best macro result was statistically close to the baseline, while add, cancel, modify, and market micro paths often regressed. Extra bookkeeping cost more than the locality improvement saved.
+**Gain:** Rejected. The best macro result was statistically close to the baseline, while add, cancel, modify, and market micro paths often regressed. Extra bookkeeping cost more than the locality improvement saved. ([price-level strategy](report/phase4_price_level_storage_strategy.md))
 
 ### Phase 4/5 - Benchmark Accounting Repair
 
@@ -299,7 +296,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Add an untimed planning replay, update tracking from real `AddResult` and trade outcomes, then rebuild an identical book for the timed replay.
 
-**Gain:** `cancel_miss` and `modify_miss` fell to zero in the valid workload. The repaired profile showed that resting adds contributed 52.98% of weighted time and cancel hits 35.44%. This prevented optimization of a benchmark artifact.
+**Gain:** `cancel_miss` and `modify_miss` fell to zero in the valid workload. The repaired profile showed that resting adds contributed 52.98% of weighted time and cancel hits 35.44%. This prevented optimization of a benchmark artifact. ([profiling findings](report/phase4_hft_macro_optimization_priority.md))
 
 ### Phase 5a - Intrusive Stage Instrumentation
 
@@ -307,7 +304,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Place `rdtsc` and `steady_clock` probes around each tiny stage.
 
-**Gain:** Rejected measurement method. Probe latency was comparable to or larger than the code being measured, flattening unrelated stages into similar 140-cycle readings. The entire framework was removed.
+**Gain:** Rejected measurement method. Probe latency was comparable to or larger than the code being measured, flattening unrelated stages into similar 140-cycle readings. The entire framework was removed. ([profiling plan](report/phase5_macro_profiling_plan.md))
 
 ### Phase 5b - Window-Isolated `perf record`
 
@@ -315,7 +312,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Use `perf record --control=fifo` and enable sampling only around the `RunOp()` batch.
 
-**Gain:** The authoritative profile showed roughly half of macro cycles in the cancel-index hash table and 17.8% in `std::map` level lookup. This directly set the Phase 6 priority.
+**Gain:** The authoritative profile showed roughly half of macro cycles in the cancel-index hash table and 17.8% in `std::map` level lookup. This directly set the Phase 6 priority. ([profiling plan](report/phase5_macro_profiling_plan.md))
 
 ### Phase 6a - Gateway-Owned Identity and Engine Handles
 
@@ -323,7 +320,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Move duplicate-ID and client-ID resolution to the gateway boundary. Return a pool-index `OrderHandle` from resting adds; accept handles for cancel and modify; resolve them by one indexed pool access.
 
-**Gain:** Average latency fell from 34.4 to 29.3 ns/op in the comparable campaign. `cancel_order` fell from about 29.8% to 9.1% of sampled cycles, and hash-table functions disappeared from the core profile.
+**Gain:** Average latency fell from 34.4 to 29.3 ns/op in the comparable campaign. `cancel_order` fell from about 29.8% to 9.1% of sampled cycles, and hash-table functions disappeared from the core profile. ([handle design](report/phase6_engine_handle_refactor_plan.md) | [benchmark migration](report/phase6_benchmark_handle_migration.md))
 
 ### Phase 6b - PMR Price-Level Map
 
@@ -339,7 +336,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Add a 16-slot directed ring around the current best, track live slots with a compile-time-sized bit mask, and keep out-of-window prices in a cold `std::map`.
 
-**Gain:** Against Phase 6a, latency improved by 19.9%, throughput by 24.9%, and branch misses fell by 32.2%. A 30-trial sweep showed ring sizes 16 and 32 were equivalent; 16 was retained for the smaller footprint.
+**Gain:** Against Phase 6a, latency improved by 19.9%, throughput by 24.9%, and branch misses fell by 32.2%. A 30-trial sweep showed ring sizes 16 and 32 were equivalent; 16 was retained for the smaller footprint. ([ring design](report/phase7_hot_ring_cold_map_design.md) | [benchmark results](report/phase7_benchmark_results.md))
 
 ### Phase 7b - PriceLevelPool
 
@@ -347,7 +344,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Add a dedicated contiguous `PriceLevelPool` with free-list acquire/release.
 
-**Gain:** Latency improved from 23.18 to 21.16 ns/op, instructions fell by 13.4%, cache misses fell by 19.3%, and hot-path `malloc` disappeared.
+**Gain:** Latency improved from 23.18 to 21.16 ns/op, instructions fell by 13.4%, cache misses fell by 19.3%, and hot-path `malloc` disappeared. ([benchmark results](report/phase7_benchmark_results.md))
 
 ### Phase 7c - Targeted Forced Inlining
 
@@ -355,7 +352,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Move `acquire()`, `release()`, `resolve()`, and related short helpers into headers and apply `[[gnu::always_inline]]` where the profile justified it.
 
-**Gain:** Latency improved by 9.5%, throughput by 10.5%, and instructions fell from 153.8 to 137.1 per operation. This was a targeted result, not a blanket claim that forced inlining is generally beneficial.
+**Gain:** Latency improved by 9.5%, throughput by 10.5%, and instructions fell from 153.8 to 137.1 per operation. This was a targeted result, not a blanket claim that forced inlining is generally beneficial. ([benchmark results](report/phase7_benchmark_results.md))
 
 ### Phase 8a - First Unified Array Side Book
 
@@ -363,7 +360,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Replace both structures with one fixed-range `ArraySideBook` and a hierarchical occupancy bitmap for next-best lookup.
 
-**Gain:** Architectural validation, but nearly performance-neutral: 19.30 vs 19.57 ns/op. Branch and cache behavior improved, while generic ghost cleanup and occupancy code added about 21 instructions/op.
+**Gain:** Architectural validation, but nearly performance-neutral: 19.30 vs 19.57 ns/op. Branch and cache behavior improved, while generic ghost cleanup and occupancy code added about 21 instructions/op. ([design rationale](report/phase8_fixed_array_design.md) | [results](report/phase8_array_side_book_results.md))
 
 ### Phase 8b - Fixed Occupancy Tree and Pure Read Paths
 
@@ -371,7 +368,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Remove ghost cleanup from pure reads; store bitmap levels in fixed `std::array`; explicitly unroll set, clear, and next/previous lookup.
 
-**Gain:** Versus Phase 7c, latency fell by 10.7%, instructions by 5.2%, branch misses by 17.8%, and cache misses by 39.3%. Throughput reached about 58.1M ops/s.
+**Gain:** Versus Phase 7c, latency fell by 10.7%, instructions by 5.2%, branch misses by 17.8%, and cache misses by 39.3%. Throughput reached about 58.1M ops/s. ([results](report/phase8_array_side_book_results.md))
 
 ### Phase 8c - Eager Empty-Level Retirement
 
@@ -379,7 +376,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Add owner-side/index metadata and perform immediate tree updates on common mutation paths.
 
-**Gain:** Rejected. It added 9.5 instructions/op and regressed latency by 5.2%. Lazy retirement was restored.
+**Gain:** Rejected. It added 9.5 instructions/op and regressed latency by 5.2%. Lazy retirement was restored. ([results](report/phase8_array_side_book_results.md))
 
 ### Phase 9 - Per-Scenario Attribution and Linux Isolation
 
@@ -387,7 +384,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Record complete per-call CSV data for existing-level add, new-level add, and cancel. Add CPU/NUMA binding, SMT-aware CPU selection, IRQ/workqueue migration, governor controls, realtime experiments, watchdog suppression, and `nohz_full` boot isolation.
 
-**Gain:** New-level add was isolated as the widest basic-operation distribution. System tuning reduced CPU2 softirqs from about 2254 to 219 and local timer interrupts from about 15590 to 4695, but ordinary p99 did not move. The system-noise hypothesis was therefore closed for this VM.
+**Gain:** New-level add was isolated as the widest basic-operation distribution. System tuning reduced CPU2 softirqs from about 2254 to 219 and local timer interrupts from about 15590 to 4695, but ordinary p99 did not move. The system-noise hypothesis was therefore closed for this VM. ([detailed report](report/phase9_per_scenario_benchmark.md))
 
 ### Phase 10 - Tail Attribution and Cache Hypotheses
 
@@ -395,7 +392,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Classify each `OccupancyTree::set()` path, record PriceLevel and pool-slot reuse distance, test manual prefetch, shrink `PriceLevel` from 24 to 16 bytes, and reduce the range from 65536 prices/three bitmap levels to 4096 prices/two levels.
 
-**Gain:** Bitmap propagation was measurably slower, but PriceLevel and slot reuse correlations were only 0.107 and 0.010. First touch was expensive but rare. The smaller array reduced instructions by 1.2% and cache misses by 4.5% but regressed macro latency by 0.8%. The smaller layout was retained for simplicity; the common p99/p999 cache hypothesis was rejected.
+**Gain:** Bitmap propagation was measurably slower, but PriceLevel and slot reuse correlations were only 0.107 and 0.010. First touch was expensive but rare. The smaller array reduced instructions by 1.2% and cache misses by 4.5% but regressed macro latency by 0.8%. The smaller layout was retained for simplicity; the common p99/p999 cache hypothesis was rejected. ([detailed report](report/phase10_progress.md))
 
 ### Phase 11 - LTO, PGO, and Core Freeze
 
@@ -403,7 +400,7 @@ The table below is a navigation map, not a substitute for paired artifacts. Some
 
 **How:** Compare baseline, LTO, PGO, and LTO+PGO builds. Train PGO on 10 seeds and validate all modes on 50 separate paired seeds.
 
-**Gain:** LTO delivered 15.630 ns/op in the 50-seed compiler matrix and removed 25.7% of instructions. A later cross-phase campaign re-validated `main` @ `8200c67` at **14.86 ns/op** and **67.28 Mops/s**. PGO alone was 1.3% slower than baseline; LTO+PGO was 1.0% slower than LTO. PGO support was removed, LTO became the performance configuration, and the matching core was frozen.
+**Gain:** LTO delivered 15.630 ns/op in the 50-seed compiler matrix and removed 25.7% of instructions. A later cross-phase campaign re-validated `main` @ `8200c67` at **14.86 ns/op** and **67.28 Mops/s**. PGO alone was 1.3% slower than baseline; LTO+PGO was 1.0% slower than LTO. PGO support was removed, LTO became the performance configuration, and the matching core was frozen. ([detailed report](report/phase11_lto_pgo_results.md))
 
 ## Lessons from Rejected Experiments
 
@@ -520,7 +517,6 @@ low-latency-matching-engine/
 |   |   `-- lib/
 |   `-- tests/
 |-- report/              # design records and phase reports
-|-- server_results/      # remote benchmark artifacts
 |-- PROJECT_HISTORY.md   # chronological experiment log
 `-- CMakeLists.txt
 ```
@@ -534,9 +530,12 @@ Historical branches are retained for the major milestones, including `phase1-fin
 | Phase 1-2 allocator and cancel-index work | [`phase1_vs_phase2_report.md`](report/phase1_vs_phase2_report.md) |
 | Hash-table comparison | [`phase2b_to_phase_2e_comparison.md`](report/phase2b_to_phase_2e_comparison.md) |
 | HFT workload design | [`phase3_hft_benchmark_design.md`](report/phase3_hft_benchmark_design.md) |
-| Price-level strategy | [`phase4_price_level_storage_strategy.md`](report/phase4_price_level_storage_strategy.md) |
-| Production profiling | [`phase5_macro_profiling_plan.md`](report/phase5_macro_profiling_plan.md) |
+| Price-level strategy and ChunkPool | [`phase4_price_level_storage_strategy.md`](report/phase4_price_level_storage_strategy.md) |
+| Operation-level profiling findings | [`phase4_hft_macro_optimization_priority.md`](report/phase4_hft_macro_optimization_priority.md) |
+| Production profiling and perf record | [`phase5_macro_profiling_plan.md`](report/phase5_macro_profiling_plan.md) |
 | Handle-based engine boundary | [`phase6_engine_handle_refactor_plan.md`](report/phase6_engine_handle_refactor_plan.md) |
+| Benchmark handle migration | [`phase6_benchmark_handle_migration.md`](report/phase6_benchmark_handle_migration.md) |
+| Phase 1-6 cross-phase comparison | [`phase_evolution_phase1_to_phase6.md`](report/phase_evolution_phase1_to_phase6.md) |
 | Hot ring + cold map design | [`phase7_hot_ring_cold_map_design.md`](report/phase7_hot_ring_cold_map_design.md) |
 | Phase 7 results | [`phase7_benchmark_results.md`](report/phase7_benchmark_results.md) |
 | Fixed-array rationale | [`phase8_fixed_array_design.md`](report/phase8_fixed_array_design.md) |
@@ -544,6 +543,7 @@ Historical branches are retained for the major milestones, including `phase1-fin
 | Scenario benchmark and Linux isolation | [`phase9_per_scenario_benchmark.md`](report/phase9_per_scenario_benchmark.md) |
 | Tail attribution and cache tests | [`phase10_progress.md`](report/phase10_progress.md) |
 | LTO/PGO and final core decision | [`phase11_lto_pgo_results.md`](report/phase11_lto_pgo_results.md) |
+| Operation-scoped PMC design | [`hft_macro_operation_pmc_design.md`](report/hft_macro_operation_pmc_design.md) |
 | Complete chronological record | [`PROJECT_HISTORY.md`](PROJECT_HISTORY.md) |
 
 ## Known Constraints

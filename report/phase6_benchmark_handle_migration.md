@@ -85,9 +85,11 @@ Recommended safety belt: count cancel/modify failures during the timed window an
 
 ## Relationship To The Engine Refactor
 
-This migration is the benchmark-side completion of the plan's items 7 and 8 ("Update `bench_hft_macro` to track engine handles", "Re-run correctness tests and smoke benchmarks"). It also realizes the plan's "Benchmark Scope" rule: handle tracking and target selection happen in `Setup()`, and the timed window models only the matching core's real input on the cancel/modify paths, which is an already-resolved handle. The gateway-side `client_order_id -> handle` lookup remains explicitly out of scope for this matching-core benchmark.
+This migration is the benchmark-side completion of the plan's items 7 and 8 ("Update `bench_hft_macro` to track engine handles", "Re-run correctness tests"). It also realizes the plan's "Benchmark Scope" rule: handle tracking and target selection happen in `Setup()`, and the timed window models only the matching core's real input on the cancel/modify paths, which is an already-resolved handle. The gateway-side `client_order_id -> handle` lookup remains explicitly out of scope for this matching-core benchmark.
 
 ## Next Steps
+
+> **Status (post-Phase 11):** All four items below were addressed. The failure-count assertion was added. The `perf record` confirmation was completed in Phase 7 (Experiment 4). The `std::map` price-level container was replaced through Phase 7 (hot ring + cold map) and Phase 8 (unified array side book). Historical phase baselines were re-run under a devalidated handle contract for the Phase 1–6 cross-phase comparison (`phase_evolution_phase1_to_phase6.md`).
 
 1. Add the timed-window failure-count assertion described above as a regression guard.
 2. Run the 10-trial production PMC and window-isolated `perf record` on the handle-based engine to confirm the cancel-index cost is gone from the hot path.

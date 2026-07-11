@@ -19,27 +19,6 @@ The notes below are based on:
 - `report/phase9_per_scenario_benchmark.md`
 - `report/phase10_progress.md`
 - `report/phase11_lto_pgo_results.md`
-- `benchmark/results/campaign_20260601_1319/`
-- `benchmark/results/hft_macro_perf_record_cloud_20260601/`
-- `server_results/macro_op_profile_cloud_t1/`
-- `server_results/hft_macro_perf_record_master_20260603_153306/`
-- `server_results/compare_master_vs_phase6a_20260603_173405/`
-- `server_results/compare_master_vs_phase6a_20260605_182321/`
-- `server_results/master_ring_size_sweep_trials30_20260605_185129/`
-- `server_results/compare_master_vs_phase7b_20260606_184425/`
-- `server_results/compare_master_vs_phase7c_newvm_20260610_172132/`
-- `server_results/compare_master_vs_phase8b_20260610_183431/`
-- `server_results/hft_macro/scenarios_tuned/hft_macro_scenarios_tuned_20260612_002441/`
-- `server_results/hft_macro/scenarios_tuned/hft_macro_scenarios_tuned_20260612_005335/`
-- `server_results/hft_macro/scenarios_tuned/hft_macro_scenarios_tuned_20260612_014047/`
-- `server_results/nohz_full_setup_20260612_023844/`
-- `server_results/hft_macro/scenarios_tuned/hft_macro_scenarios_tuned_20260613_162525/`
-- `server_results/hft_macro/scenarios_tuned/hft_macro_scenarios_tuned_20260613_193319/`
-- `server_results/hft_macro/pgo_compare/pgo_compare_20260614_113205/`
-- `server_results/matching_core_campaign_20260622_204849/`
-- `server_results/hft_macro/perf_record/hft_macro_perf_record_20260614_115103/`
-- `server_results/hft_macro/scenarios_tuned/hft_macro_scenarios_tuned_20260614_120210/`
-
 ## Phase 1: Correctness-First Baseline
 
 ### Design
@@ -298,12 +277,6 @@ A later experiment tested whether per-price-level chunk storage could improve ca
 
 ### Recorded Benchmark Result
 
-The current repository keeps a 10-trial campaign under:
-
-```text
-benchmark/results/campaign_20260601_1319/
-```
-
 The overall summary compares `phase4a` against chunk sizes 16, 32, 64, 128, and 256.
 
 For the headline HFT macro scenario:
@@ -362,13 +335,7 @@ The helper script is:
 benchmark/scripts/run_hft_macro_op_profile.sh
 ```
 
-### Cloud Smoke Result
-
-A one-trial cloud run is stored under:
-
-```text
-server_results/macro_op_profile_cloud_t1/
-```
+### Initial Op-Profile Result
 
 Run configuration:
 
@@ -435,7 +402,7 @@ This removes the major source of false `cancel_miss`:
 - modify outcomes (including crossing/fully-filled cases) are reflected
 - cluster cancels are validated against the planning book before enqueue
 
-Local smoke validation (`TRIALS=1`, `BATCH_SIZE=20000`) shows:
+Local validation (`TRIALS=1`, `BATCH_SIZE=20000`) shows:
 
 | Operation | Share |
 |---|---:|
@@ -460,13 +427,6 @@ levels:       100
 batch_size:   100000
 warmup_iters: 1
 iters:        1
-```
-
-Artifacts:
-
-```text
-server_results/macro_op_profile_cloud_phase4_finale_t1/
-report/phase4_hft_macro_optimization_priority.md
 ```
 
 Overall:
@@ -552,12 +512,6 @@ iters:        40
 window:       RunOp batch only (perf --control=fifo, -D -1)
 ```
 
-Artifacts:
-
-```text
-benchmark/results/hft_macro_perf_record_cloud_20260601/
-```
-
 The run was clean: 40 paired enable/disable transitions, a clean 18.47M ops/s @ 54.1 ns/op (no instrumentation overhead), 30,354 samples. (`annotate_*.txt` came out empty because at `-O3` the engine is fully inlined into `RunOp`, so there is no standalone `add_limit_order` symbol; the call-graph report still gives full function-level attribution.)
 
 ### Function-Level Findings (share of all `RunOp` samples)
@@ -633,9 +587,9 @@ Docs: `report/phase6_benchmark_handle_migration.md`, `report/phase6_engine_handl
 
 ### Measured outcome
 
-**Macro (cloud, Jun 2026):** `master` / Phase 6a vs `phase5-finale-devalidated` at `orders=100k`, `levels=100`, 10 trials — **29.3 vs 34.4 ns/op** (~17.6% faster); see `server_results/compare_master_vs_phase5_20260603_143852/`.
+**Macro (cloud, Jun 2026):** `master` / Phase 6a vs `phase5-finale-devalidated` at `orders=100k`, `levels=100`, 10 trials — **29.3 vs 34.4 ns/op** (~17.6% faster).
 
-**Production `perf record` on `master` @ `f77e051` (window-isolated RunOp):** `server_results/hft_macro_perf_record_master_20260603_153306/SUMMARY.md`
+**Production `perf record` on `master` @ `f77e051` (window-isolated RunOp):**
 
 | Operation | cycles % (Phase 6a) | cycles % (pre-handle, Phase 5 profile) |
 |---|---:|---:|
@@ -675,7 +629,7 @@ As of the Phase 11 endpoint:
 - the matching-engine and order-book core is frozen; networking, SPSC transport, and thread ownership now live in the sibling repo [`low-latency-trading-gateway`](https://github.com/Keyuan-Wang/low-latency-trading-gateway)
 - ChunkPool benchmark artifacts are recorded but the design is not the active baseline
 - PMR price-level node pooling was tested after Phase 6a; it reduced cache misses but increased instruction count and regressed macro latency, so it is not the active direction
-- unified Phase 1–6 narrative: `report/phase_evolution_phase1_to_phase6.md`, CSV `server_results/hft_macro_cross_phase_summary_20260603.csv`
+- unified Phase 1–6 narrative: `report/phase_evolution_phase1_to_phase6.md`
 - Phase 7 narrative and benchmark report: `report/phase7_hot_ring_cold_map_design.md`, `report/phase7_benchmark_results.md`
 - Phase 8 rationale and result: `report/phase8_fixed_array_design.md`, `report/phase8_array_side_book_results.md`
 - Phase 9 per-scenario and system-tuning report: `report/phase9_per_scenario_benchmark.md`
@@ -685,13 +639,6 @@ As of the Phase 11 endpoint:
 ## Jun 2026 Unified `hft_macro` Campaign (Devalidated + Phase 6/7)
 
 Cloud runner: `benchmark/scripts/run_remote_compare.sh` on Hetzner CCX23.
-
-| Artifact | Contents |
-|---|---|
-| `server_results/devalidated_hft_macro_20260603_150410/` | 8 branches: p1, p2a–e, p4a, p4-finale (all `*-devalidated`) |
-| `server_results/compare_master_vs_phase5_20260603_143852/` | `master` vs `phase5-finale-devalidated` (skipped re-run) |
-| `server_results/hft_macro_cross_phase_summary_20260603.csv` | Merged headline latency/PMC row per phase |
-| `server_results/matching_core_campaign_20260622_204849/` | Final validated `main` @ `8200c67` campaign |
 
 Headline `hft_macro` at `orders=100000`, `levels=100`, 10 trials (devalidated unless noted):
 
@@ -729,12 +676,6 @@ The tested implementation kept the `std::map` design and pointer stability, but 
 - the intent was to avoid hot-path `new` / `delete` for map nodes without changing matching semantics
 
 ### Benchmark Result
-
-The cloud comparison is stored under:
-
-```text
-server_results/compare_master_vs_phase6a_20260603_173405/
-```
 
 Configuration: `hft_macro`, `orders=100000`, `levels=100`, `batch_size=100000`, 10 trials, latency + PMC.
 
@@ -823,12 +764,6 @@ When the best price advances toward worse prices, `erase_best()` promotes cold e
 
 ### Benchmark Result: Phase 7 vs Phase 6a
 
-Cloud run:
-
-```text
-server_results/compare_master_vs_phase6a_20260605_182321/
-```
-
 Configuration: `hft_macro`, `orders=100000`, `levels=100`, `batch_size=100000`, 10 trials.
 
 | Version | Meaning | avg ns/op | ops/s | instr/op | branch miss/op |
@@ -849,9 +784,6 @@ The speedup is primarily a reduction in branchy ordered-map work and pointer-cha
 
 A 30-trial sweep tested `RingSize = 8, 16, 32, 64` at a single commit:
 
-```text
-server_results/master_ring_size_sweep_trials30_20260605_185129/
-```
 
 | RingSize | avg ns/op | 95% CI | ops/s |
 |---:|---:|---|---:|
@@ -871,7 +803,7 @@ Conclusion:
 
 Phase 7a left one allocator cost on the hot path: each new price level was a `make_unique<PriceLevel>` (one `malloc`, freed on level removal). Phase 7b replaces this with `PriceLevelPool`, a free-list pool of pre-allocated `PriceLevel` objects. `acquire()`/`release()` are a few pointer operations; cold-map values become raw `PriceLevel*` owned by the pool.
 
-Cloud run (`server_results/compare_master_vs_phase7a_20260606_171238/`), `hft_macro`, `orders=100000`, `levels=100`, 10 trials:
+Cloud run, `hft_macro`, `orders=100000`, `levels=100`, 10 trials:
 
 | Version | Meaning | avg ns/op | ops/s | instr/op | cache miss/op |
 |---|---|---:|---:|---:|---:|
@@ -880,7 +812,7 @@ Cloud run (`server_results/compare_master_vs_phase7a_20260606_171238/`), `hft_ma
 
 Pool is about 8.7% faster, 95% CIs do not overlap. Unlike the rejected PMR experiment, this is a clean win on **both** axes: instructions dropped 13.4% **and** cache misses dropped 19.3%. PMR added an allocator-abstraction layer that raised instruction count; the pool's free-list and contiguous storage reduce both. (CPI rose 6.6% as a denominator artifact — fewer total instructions leave the expensive ones a larger fraction — but absolute cycles/op still fell 7.7%.)
 
-A fresh window-isolated `perf record` (`server_results/hft_macro_perf_record_master_20260606_161810/`, commit `e8c4f29`) confirms the allocator block is gone: `get_or_create` fell from ~12.3% to ~9.5% of RunOp cycles and hot-path `malloc` disappeared (`PriceLevelPool::acquire` is 1.71%). The newly dominant `add_limit_order` cost centers are `match_against` (~10%), `reanchor_to` (~4.8%), and `AddResult`/`vector<Trade>` construct-destruct (~1.9%) — candidate targets for Phase 8.
+A fresh window-isolated `perf record` (commit `e8c4f29`) confirms the allocator block is gone: `get_or_create` fell from ~12.3% to ~9.5% of RunOp cycles and hot-path `malloc` disappeared (`PriceLevelPool::acquire` is 1.71%). The newly dominant `add_limit_order` cost centers are `match_against` (~10%), `reanchor_to` (~4.8%), and `AddResult`/`vector<Trade>` construct-destruct (~1.9%) — candidate targets for Phase 8.
 
 ### Phase 7c: Header-Only Short Helpers and Forced Inlining
 
@@ -894,13 +826,7 @@ After Phase 7b, perf still showed several tiny helpers as visible hot-path calls
 
 Phase 7c moved the hot short function bodies into headers and marked them with `[[gnu::always_inline]]`. The final patch also applied the attribute to other small ring/price-level helpers, but the main expected source of gain was the pool acquire/release and handle resolve functions that prior perf reports had explicitly shown were not consistently inlined.
 
-Cloud comparison:
-
-```text
-server_results/compare_master_vs_phase7b_20260606_184425/
-```
-
-Configuration: `hft_macro`, `orders=100000`, `levels=100`, `batch_size=100000`, 10 trials.
+Cloud comparison. Configuration: `hft_macro`, `orders=100000`, `levels=100`, `batch_size=100000`, 10 trials.
 
 | Version | Meaning | avg ns/op | ops/s | instr/op | cycles/op |
 |---|---|---:|---:|---:|---:|
@@ -974,13 +900,6 @@ Commit:
 81ab90488de2f6e2ebf4d7ab917c69e4f5711e70
 ```
 
-Artifact:
-
-```text
-server_results/compare_master_vs_phase7c_trials50_20260608_210512/
-server_results/hft_macro_perf_record_master_20260608_201629/
-```
-
 Phase 8a validated the architecture but was performance-neutral against Phase 7c:
 
 | Metric | Phase 8a | Phase 7c |
@@ -1001,13 +920,6 @@ Commit:
 71f1ee191fbe40ad67d69572ccbc01c825d98b99
 ```
 
-Artifacts:
-
-```text
-server_results/compare_master_vs_phase7c_newvm_20260610_172132/
-server_results/hft_macro_perf_record_master_20260610_162529/
-```
-
 Phase 8b removed ghost cleanup from `empty()`, `best_price()`, and `best_level()`. It also fixed the occupancy tree to the known 65536-price range with `std::array` storage and unrolled the three-level set/clear/find operations.
 
 | Metric | Phase 8b | Phase 7c | Change |
@@ -1021,12 +933,6 @@ Phase 8b removed ghost cleanup from `empty()`, `best_price()`, and `best_level()
 Phase 8b is the active performance baseline. It reaches about 58.1M macro operations/s on the comparable Hetzner CCX23 run.
 
 ### Phase 8c: Eager Empty-Level Retirement (Rejected)
-
-Artifact:
-
-```text
-server_results/compare_master_vs_phase8b_20260610_183431/
-```
 
 Phase 8c tried to clear occupancy state immediately when cancel/modify removed the final order from a level. This required owner-side/index metadata and extra work on common mutation paths.
 
@@ -1181,12 +1087,6 @@ Phase 11 tested four GCC 15 Release configurations on Hetzner CCX23:
 
 PGO used 10 training seeds. Validation used 50 different seeds, with the four modes rotated in execution order for each paired trial.
 
-Primary artifact:
-
-```text
-server_results/hft_macro/pgo_compare/pgo_compare_20260614_113205/
-```
-
 ### Result
 
 | Build | Average ns/op | Throughput | Cycles/op | Instructions/op | Branches/op |
@@ -1221,10 +1121,6 @@ This does not conflict with the macro improvement. Per-call `rdtscp` measurement
 LTO is the final performance Release configuration. PGO is not retained.
 
 A later cross-phase validation campaign confirmed the frozen core on the same HFT macro gate:
-
-```text
-server_results/matching_core_campaign_20260622_204849/
-```
 
 | Metric | Value |
 |---|---:|

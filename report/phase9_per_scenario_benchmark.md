@@ -6,13 +6,7 @@ Phase 9 adds a diagnostic benchmark layer on top of the existing HFT macro workl
 
 The original `hft_macro` benchmark remains the primary performance metric. It measures the full mixed workload with low instrumentation overhead and is the right source for end-to-end latency and PMC results. The new per-scenario benchmark answers a different question: within the same realistic macro event stream, which single-operation scenarios are responsible for the observed latency distribution?
 
-The first useful result is:
-
-```text
-server_results/hft_macro_scenarios_20260610_200842/
-```
-
-It separates the measured single-operation paths into:
+The first useful result separates the measured single-operation paths into:
 
 - `add_rest_existing_level`
 - `add_rest_new_level`
@@ -290,12 +284,6 @@ Therefore the interpretation should be:
 
 ## Preliminary Result
 
-Artifact:
-
-```text
-server_results/hft_macro_scenarios_20260610_200842/
-```
-
 Environment summary:
 
 | Field | Value |
@@ -418,7 +406,6 @@ CPU2 sibling set: 2-3
 The first tuned run selected CPU1, which still shared a physical core with CPU0:
 
 ```text
-server_results/hft_macro_scenarios_tuned_20260611_224657/
 bench_cpu=1
 smt_siblings=0-1
 ```
@@ -426,8 +413,6 @@ smt_siblings=0-1
 After the auto-selection fix, later tuned runs selected CPU2:
 
 ```text
-server_results/hft_macro_scenarios_tuned_20260611_232354/
-server_results/hft_macro_scenarios_tuned_20260611_233122/
 bench_cpu=2
 smt_siblings=2-3
 ```
@@ -533,8 +518,6 @@ This file reports per-CPU deltas and highlights the benchmark CPU. This is usefu
 The 2026-06-11 run after CPU0-sibling avoidance showed:
 
 ```text
-server_results/hft_macro_scenarios_tuned_20260611_232354/
-
 bench_cpu=2
 interrupts on CPU2 total = 15592
 LOC local timer interrupts on CPU2 = 15429
@@ -570,13 +553,7 @@ label
 
 `kernel_activity_delta.txt` now also prints affinity information for the top interrupt rows.
 
-The result:
-
-```text
-server_results/hft_macro_scenarios_tuned_20260611_233122/
-```
-
-showed two concrete device IRQs hitting the benchmark CPU:
+The result showed two concrete device IRQs hitting the benchmark CPU:
 
 ```text
 IRQ 38 virtio5-request:
@@ -598,13 +575,7 @@ This is a useful distinction:
 
 ## Tuned Results So Far
 
-The first tuned run:
-
-```text
-server_results/hft_macro_scenarios_tuned_20260611_224657/
-```
-
-used CPU1, which shared a physical core with CPU0. Even so, the improvement was immediate:
+The first tuned run used CPU1, which shared a physical core with CPU0. Even so, the improvement was immediate:
 
 | Scenario | Untuned elapsed p99 | Tuned elapsed p99 |
 |---|---:|---:|
@@ -614,13 +585,7 @@ used CPU1, which shared a physical core with CPU0. Even so, the improvement was 
 
 ![First tuned run distributions (CPU1, shared core with CPU0)](phase9_tuned_20260611_224657_distributions.png)
 
-The later 10-trial run with CPU2:
-
-```text
-server_results/hft_macro_scenarios_tuned_20260611_232354/
-```
-
-produced:
+The later 10-trial run with CPU2 produced:
 
 | Scenario | cycles p50 | cycles p95 | cycles p99 | cycles p999 | elapsed p50 | elapsed p95 | elapsed p99 | elapsed p999 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -630,13 +595,7 @@ produced:
 
 ![CPU2 tuned run distributions (10 trials pooled)](phase9_tuned_20260611_232354_distributions.png)
 
-The next 10-trial run with IRQ affinity observation:
-
-```text
-server_results/hft_macro_scenarios_tuned_20260611_233122/
-```
-
-was similar, with a slightly larger p999 tail:
+The next 10-trial run with IRQ affinity observation was similar, with a slightly larger p999 tail:
 
 | Scenario | cycles p50 | cycles p95 | cycles p99 | cycles p999 | elapsed p50 | elapsed p95 | elapsed p99 | elapsed p999 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -654,17 +613,11 @@ The final part of Phase 9 tested whether the remaining per-scenario p99 tail was
 
 Three progressively stronger configurations were tested on the same cloud VM and commit:
 
-| Stage | Artifact | Description |
-|---|---|---|
-| dynamic CPU + IRQ move | `server_results/hft_macro/scenarios_tuned/hft_macro_scenarios_tuned_20260612_002441/` | automatic clean-CPU selection, NUMA binding, IRQ affinity movement away from the benchmark CPU |
-| aggressive isolation | `server_results/hft_macro/scenarios_tuned/hft_macro_scenarios_tuned_20260612_005335/` | SMT-sibling IRQ avoidance, workqueue cpumask movement, `chrt -f 95`, watchdog off, RT throttling off, CPU DMA latency lock |
-| boot-time `nohz_full` | `server_results/hft_macro/scenarios_tuned/hft_macro_scenarios_tuned_20260612_014047/` | `nohz_full`, `rcu_nocbs`, `isolcpus`, `irqaffinity`, and `kthread_cpus` applied through GRUB and reboot |
-
-The `nohz_full` setup result is:
-
-```text
-server_results/nohz_full_setup_20260612_023844/
-```
+| Stage | Description |
+|---|---|
+| dynamic CPU + IRQ move | automatic clean-CPU selection, NUMA binding, IRQ affinity movement away from the benchmark CPU |
+| aggressive isolation | SMT-sibling IRQ avoidance, workqueue cpumask movement, `chrt -f 95`, watchdog off, RT throttling off, CPU DMA latency lock |
+| boot-time `nohz_full` | `nohz_full`, `rcu_nocbs`, `isolcpus`, `irqaffinity`, and `kthread_cpus` applied through GRUB and reboot |
 
 The post-reboot verification confirmed that the kernel command line contained:
 

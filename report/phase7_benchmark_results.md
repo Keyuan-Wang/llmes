@@ -20,8 +20,6 @@ All runs on the same Hetzner CCX23 instance (AMD EPYC Milan, 4 vCPU, 32 GB RAM, 
 
 95% CIs do not overlap: master [23.89, 24.49] vs phase6b [31.71, 31.99].
 
-Artifacts: `server_results/compare_master_vs_phase6b_20260605_181141/`
-
 ## Experiment 2: Phase 7 vs Phase 6a (std::map, no PMR, handle-based)
 
 10 trials. master @ `00e6470` vs phase6a @ `d778e4f`.
@@ -37,8 +35,6 @@ Artifacts: `server_results/compare_master_vs_phase6b_20260605_181141/`
 | cache misses/op | 0.038 | 0.035 | +7.5% |
 
 95% CIs do not overlap: master [23.86, 24.66] vs phase6a [29.99, 30.61].
-
-Artifacts: `server_results/compare_master_vs_phase6a_20260605_182321/`
 
 ### Why two baselines
 
@@ -74,8 +70,6 @@ Statistical significance (Welch t-test, n=30):
 | 16 vs 64 | 0.15 ns (0.63%) | 0.025 | 0.59 | no |
 | 16 vs 8 | 0.97 ns (3.86%) | <0.001 | 3.93 | **yes** |
 
-Artifacts: `server_results/master_ring_size_sweep_trials30_20260605_185129/`
-
 ### Finding 1: RingSize=8 is too small
 
 ~4% slower than 16/32, p<0.001, survives Bonferroni correction (6 pairwise tests, threshold p<0.0083). The HFT macro workload places ~90% of operations within ±5 ticks of best. An 8-slot window cannot cover this range — near-best operations spill into the cold `std::map` path. This shows up as +2 instructions/op (179.6 vs 177.5) and +6% branch misses (1.556 vs 1.467).
@@ -97,8 +91,6 @@ RingSize=16 is optimal for the current workload. It matches 32 in performance wh
 Window-isolated RunOp profiling on `master` @ `fd1436c` (`RingSize=16` default). Script: `benchmark/scripts/run_hft_macro_perf_record.sh`. Build: Release + `-g`, no `LLME_PROFILE_*`. Sampling: `cycles,branch-misses` @ 8000 Hz, enabled only around the measured RunOp batch (`perf --control=fifo`, `-D -1`). Workload: `orders=100000`, `levels=100`, `batch_size=1_000_000`, `iters=40`. Samples: 20,783 cycles events, 0 lost.
 
 Wall-clock latency for this run: avg **32.6 ns/op** over the 1M batch — not directly comparable to the 100k macro campaign numbers above.
-
-Artifacts: `server_results/hft_macro_perf_record_ring16_20260605_180400/`
 
 ### Top-level `execute_pending` breakdown
 
@@ -249,8 +241,6 @@ Phase 7 compresses the old ~28% `std::map` `get_or_create` block to ~12%, but **
 
 95% CIs do not overlap: master [21.08, 21.24] vs phase7a [22.98, 23.38].
 
-Artifacts: `server_results/compare_master_vs_phase7a_20260606_171238/`
-
 ### A clean win, unlike the rejected PMR experiment
 
 The PMR node-pool experiment (Phase 6b candidate, rejected) reduced cache misses but **raised** instruction count ~19%, netting a regression. `PriceLevelPool` is the opposite: it reduces **both** instructions (−13.4%) **and** cache misses (−19.3%) at the same time. The difference:
@@ -265,8 +255,6 @@ CPI rose 6.6% (0.475 → 0.507) — this is a denominator artifact, not a regres
 ## Experiment 6: Production `perf record` after PriceLevelPool (RingSize=16)
 
 Window-isolated RunOp profiling on `master` @ `e8c4f29` (RingSize=16, `PriceLevelPool`). Same methodology as Experiment 4: Release + `-g`, `cycles,branch-misses` @ 8000 Hz, `perf --control=fifo -D -1`, `batch_size=1_000_000`, `iters=40`. Samples: 15,149 cycles events, 0 lost. Wall latency this run: avg **31.1 ns/op** over the 1M batch (not comparable to the 100k campaign numbers).
-
-Artifacts: `server_results/hft_macro_perf_record_master_20260606_161810/`
 
 ### Top-level `execute_pending` breakdown
 
@@ -313,13 +301,7 @@ The Phase 7b perf profile still showed small but repeated pool/handle helpers as
 
 Phase 7c moves these short function bodies into headers and marks the hot helpers with `[[gnu::always_inline]]`. The final branch also marks other tiny ring/price-level helpers, but the expected and observed main win is from the pool acquire/release/resolve helpers that prior perf reports explicitly showed as non-inlined call sites.
 
-10-trial cloud comparison:
-
-```text
-server_results/compare_master_vs_phase7b_20260606_184425/
-```
-
-Configuration: `hft_macro`, `orders=100000`, `levels=100`, `batch_size=100000`, `iters=1`, `warmup_iters=1`, `seed=42`.
+10-trial cloud comparison. Configuration: `hft_macro`, `orders=100000`, `levels=100`, `batch_size=100000`, `iters=1`, `warmup_iters=1`, `seed=42`.
 
 | Version | Meaning | avg ns/op | ops/s | instr/op | cycles/op |
 |---|---|---:|---:|---:|---:|
@@ -348,6 +330,8 @@ Phase 7 took `hft_macro` from the Phase 6a baseline of **30.3 ns/op** to **19.3 
 RingSize=16 was confirmed optimal for this workload (Experiment 3).
 
 ### Remaining cost centers (Phase 8 candidates)
+
+> **Status (post-Phase 8):** Phase 8 replaced the hot ring + cold map with a unified fixed-array side book (`ArraySideBook`) and a hierarchical occupancy tree. `reanchor_to` was eliminated entirely. `erase_best` was simplified to a bitmap scan. Phase 8b delivered a further 10.7% latency improvement over Phase 7c. Phase 8c (eager empty-level retirement) was tested and rejected. See [`phase8_array_side_book_results.md`](phase8_array_side_book_results.md). `AddResult::trades` (`std::vector<Trade>`) remains in the current code; it will be addressed as part of the future event-output architecture.
 
 The latest structural benchmark baseline is Phase 7c (`397e80a`). The latest production perf profile is still Phase 7b (`e8c4f29`), so its pool acquire/release/resolve percentages are partially superseded by Experiment 7. A fresh Phase 7c `perf record` should be the first Phase 8 step before choosing the next target. From the Phase 7b profile, the likely remaining candidates are `match_against` (~10%), `reanchor_to` (~4.8%), `push_back` (~5%), and the `AddResult`/`vector<Trade>` construct-destruct (~1.9%).
 

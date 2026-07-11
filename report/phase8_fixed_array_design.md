@@ -10,12 +10,6 @@ This report argues that Phase 8 should move toward a unified fixed-array price-l
 
 ## Evidence
 
-The relevant profile is:
-
-```text
-server_results/hft_macro_perf_record_master_20260606_161810/
-```
-
 Run configuration from `SUMMARY.md`:
 
 - commit: `e8c4f29`

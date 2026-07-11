@@ -26,12 +26,6 @@ iters:        1
 metric:       latency
 ```
 
-Artifacts:
-
-```text
-server_results/macro_op_profile_cloud_phase4_finale_t1/
-```
-
 Overall runner result:
 
 | Metric | Value |

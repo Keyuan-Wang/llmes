@@ -125,11 +125,6 @@ LLME_PROFILE_HFT_MACRO_OP_PMCS=ON
 
 Then it runs `hft_macro` once per counter group and stores:
 
-```text
-benchmark/results/hft_macro_op_pmc_raw.csv
-benchmark/results/hft_macro_op_pmc_logs/
-```
-
 Optional per-operation latency CSV output can be enabled with:
 
 ```text

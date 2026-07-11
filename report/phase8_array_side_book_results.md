@@ -16,13 +16,6 @@ The final recommendation is to keep **Phase 8b** as the stopping point for this 
 
 ## Phase 8a: First Working Array Side Book
 
-Artifact:
-
-```text
-server_results/compare_master_vs_phase7c_trials50_20260608_210512/
-server_results/hft_macro_perf_record_master_20260608_201629/
-```
-
 Phase 8a replaced the hot ring/cold map structure with a direct-addressed array side book and an occupancy tree for active price levels.
 
 In the 50-trial macro comparison:
@@ -54,13 +47,6 @@ The perf record explained the problem. The new array book had moved cost into `e
 Phase 8a therefore validated the data-structure direction but not the implementation shape. The array book made the CPU behavior cleaner, but repeated ghost cleanup on pure read paths and dynamic occupancy-tree machinery erased most of the benefit.
 
 ## Phase 8b: Fixed Tree and No Read-Path Ghost Clear
-
-Artifact:
-
-```text
-server_results/compare_master_vs_phase7c_newvm_20260610_172132/
-server_results/hft_macro_perf_record_master_20260610_162529/
-```
 
 Phase 8b made two key changes:
 
@@ -94,12 +80,6 @@ The perf record for Phase 8b shows the new remaining bottleneck:
 This is acceptable. Phase 8b has a clear remaining hot spot, but the overall system is already faster than Phase 7c by about 11%. The remaining cost is concentrated in a path that is fundamentally tied to best-level depletion, not in every read probe.
 
 ## Phase 8c: Eager Empty-Level Retirement
-
-Artifact:
-
-```text
-server_results/compare_master_vs_phase8b_20260610_183431/
-```
 
 Phase 8c attempted to eliminate lazy ghost cleanup by clearing an active price level as soon as the last order leaves it. The implementation added side/index metadata to `PriceLevel` and had cancel/modify paths notify the owning array side book when a level became empty.
 
@@ -137,6 +117,8 @@ Phase 8b is the best tradeoff found so far:
 Phase 8c should be recorded as a negative result, not continued. The remaining optimization space is likely in small, profile-guided polishing rather than another side-book architecture change.
 
 ## Recommended Next Step
+
+> **Status (post-Phase 11):** Phase 8b was kept as the side-book architecture. Phase 9 added per-scenario attribution and Linux isolation experiments. Phase 10 shrank the price range from 65,536 to 4,096 levels and the occupancy tree from three levels to two, removed unused `PriceLevel::size_` (shrinking `PriceLevel` from 24 to 16 bytes), and tested/rejected manual prefetch. Phase 11 added LTO (−25.7% instructions, −11.1% latency) and rejected PGO. The matching core is now frozen at **14.86 ns/op** (67.28 Mops/s). See [`phase10_progress.md`](phase10_progress.md) and [`phase11_lto_pgo_results.md`](phase11_lto_pgo_results.md).
 
 Freeze Phase 8b as the performance baseline and move future work to smaller, targeted efforts:
 

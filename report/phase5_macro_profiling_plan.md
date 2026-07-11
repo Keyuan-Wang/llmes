@@ -23,12 +23,6 @@ iters:        1
 seed:         42
 ```
 
-Artifacts:
-
-```text
-server_results/macro_op_profile_cloud_master_pmc_t1_20260601/
-```
-
 The run contains two aligned measurements:
 
 - `latency`: wall-clock macro and per-operation latency.
@@ -49,12 +43,6 @@ batch_size:   100000
 warmup_iters: 1
 iters:        1
 seed:         42
-```
-
-Artifacts:
-
-```text
-server_results/hft_macro_add_rest_stage_cloud_t1_20260601/
 ```
 
 Sanity check:
@@ -189,15 +177,6 @@ iters:        1
 seed:         42
 ```
 
-Artifacts:
-
-```text
-benchmark/results/add_rest_stage_profile_cloud_20260601/
-├── latency_raw.csv
-├── op_raw.csv
-└── stage_raw.csv
-```
-
 Sanity check:
 
 | Metric | Value |
@@ -308,15 +287,6 @@ seed:          42
 window:        RunOp batch only (perf --control=fifo, -D -1)
 ```
 
-Artifacts:
-
-```text
-benchmark/results/hft_macro_perf_record_cloud_20260601/
-├── report.txt                 # function-level call-graph (cycles + branch-misses)
-├── run.log                    # 40 enable/disable pairs, runner output
-├── meta.txt
-└── annotate_*.txt             # EMPTY (see note below)
-```
 
 ### Run Sanity
 
@@ -392,6 +362,8 @@ The reason, stated as data: the operations being timed are ~5–40 ns each, whil
 Going forward, hot-path attribution uses **`perf record` with the window-isolated control FIFO** (this section) for cost-center and branch-miss attribution, and the existing **operation-level profiling** (`LLME_PROFILE_HFT_MACRO_OPS`, which times whole operations with a single timer pair and whose op shares are corroborated by the perf function-level breakdown) for op-mix weighting. Sub-operation timing via inline instrumentation is no longer used.
 
 ## Revised Optimization Plan: Replace The Cancel-Index Hash Map
+
+> **Status (post-Phase 6):** This plan was executed in Phase 6. The cancel-index hash map was replaced with engine-issued `OrderHandle`s backed by direct pool-index resolution. See [`phase6_engine_handle_refactor_plan.md`](phase6_engine_handle_refactor_plan.md) for the design and [`phase6_benchmark_handle_migration.md`](phase6_benchmark_handle_migration.md) for the benchmark migration. The price-level container work described in section 4 was later addressed by Phase 7 (hot ring + cold map) and Phase 8 (unified array side book) rather than by the pooled `std::map` allocator proposed here.
 
 > **Correction note:** an earlier draft of this plan proposed a "Tier 1" that merged the add-path `contains` + `emplace` into a single `lazy_emplace` to recover ~11% of cycles. **That idea is withdrawn** (see "1. Why The Hash Map Is At Its Ceiling" below). The real lever is not to do tricks on the hash map but to replace it.
 

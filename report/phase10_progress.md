@@ -109,13 +109,6 @@ Trial 1 and trial 50 now contain different prices and quantities. All Phase 10 a
 
 ## 3. OccupancyTree Path Attribution
 
-Artifact:
-
-```text
-server_results/hft_macro/scenarios_tuned/
-  hft_macro_scenarios_tuned_20260613_162525/
-```
-
 Pooled scenario results:
 
 | Scenario | p50 | p99 | p999 |
@@ -202,13 +195,6 @@ Result: keep 4096 for the smaller allocation and simpler two-level tree, but do 
 
 ## 6. Order-Pool Slot Reuse
 
-Artifact:
-
-```text
-server_results/hft_macro/scenarios_tuned/
-  hft_macro_scenarios_tuned_20260613_193319/
-```
-
 The benchmark performs an untimed replay to determine which pool slot each measured add will acquire.
 
 | Slot reuse distance | Samples | p99 | p999 | Mean |
@@ -286,7 +272,3 @@ Per-scenario data remains useful for locating regressions, but p99/p999 from int
 - Workload and attribution: `benchmark/src/hft/hft_macro_workload.hpp`
 - Scenario collector: `benchmark/src/hft/bench_hft_macro_scenarios.cpp`
 - Analysis script: `benchmark/scripts/analyze_hft_macro_attribution.py`
-- 65536 / three-level attribution: `server_results/hft_macro/scenarios_tuned/hft_macro_scenarios_tuned_20260613_162525/`
-- 4096 / two-level attribution: `server_results/hft_macro/scenarios_tuned/hft_macro_scenarios_tuned_20260613_185700/`
-- Order-slot attribution: `server_results/hft_macro/scenarios_tuned/hft_macro_scenarios_tuned_20260613_193319/`
-- 4096 vs Phase 9 macro comparison: `server_results/compare/compare_master_vs_phase9_trials50_20260613_200147/`

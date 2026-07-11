@@ -264,11 +264,13 @@ The comparison plan should therefore include:
 5. Change cancel/modify APIs to use `OrderHandle`.
 6. Update unit tests for handle-based cancel/modify and stale-handle behavior.
 7. Update `bench_hft_macro` to track engine handles.
-8. Re-run correctness tests and smoke benchmarks.
+8. Re-run correctness tests.
 9. Run 10-trial production PMC and window-isolated `perf record`.
 10. Refactor prior phase baselines to the same handle contract for comparable performance history.
 
 ## Next Optimization After Handles
+
+> **Status (post-Phase 8):** The pooled `std::map` allocator described below (Tier A) was tested as Phase 6b (PMR map) and rejected — it reduced cache misses but added 19% more instructions and regressed latency. The structural replacement (Tier B) evolved into Phase 7 (hot ring + cold map) and then Phase 8 (unified fixed-array side book with occupancy tree), which eliminated `std::map` from the hot path entirely. See [`phase7_benchmark_results.md`](phase7_benchmark_results.md) and [`phase8_array_side_book_results.md`](phase8_array_side_book_results.md).
 
 Once the hash-map cancel index is removed, the next major cost center remains the price-level container:
 

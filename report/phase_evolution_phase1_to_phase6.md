@@ -1,5 +1,7 @@
 # Phase 1–6 Evolution Report (Engine + `hft_macro`)
 
+> **Scope note:** This report covers Phases 1–6 only (pool storage, cancel index, benchmark redesign, SideBook abstraction, profiling, and engine handles). The project continued through Phase 7 (hot ring + cold map), Phase 8 (unified array side book), Phase 9 (per-scenario attribution and Linux isolation), Phase 10 (tail attribution and cache hypotheses), and Phase 11 (LTO/PGO and core freeze). See the full performance evolution table in the [README](../readme.md) and the individual phase reports for Phases 7–11.
+
 This report summarizes **incremental engine optimizations** from Phase 1 through Phase 6 (`master`), grounded in a **unified cloud `hft_macro` campaign** (Jun 3, 2026, Hetzner CCX23) and prior documented experiments. It is written for a **progressively developed** codebase: later phases add benchmarks and profiling that earlier phases do not have.
 
 ---
@@ -28,8 +30,6 @@ Use **devalidated** numbers when ranking Phase 1–5 engine structure. Cite **`m
 
 Already completed before this sweep (excluded from the 8-branch job):
 
-- `phase5-finale-devalidated` vs `master` → `server_results/compare_master_vs_phase5_20260603_143852/`
-
 ### 1.3 What is *not* comparable across all rows
 
 | Issue | Phases affected | How to read results |
@@ -41,8 +41,6 @@ Already completed before this sweep (excluded from the 8-branch job):
 | **ChunkPool** | `phase4-finale` branch only | Not on `master`. Macro is within noise of 4a but micro paths regressed (see §4.4). |
 
 ### 1.4 Aggregated numbers (Jun 3, 2026)
-
-Full CSV: `server_results/hft_macro_cross_phase_summary_20260603.csv`
 
 | Phase | Tag | avg ns/op (95% CI) | ops/s (95% CI) | instr/op | cache miss/op | CPI |
 |:---:|---|---:|---:|---:|---:|---:|
@@ -64,11 +62,6 @@ Full CSV: `server_results/hft_macro_cross_phase_summary_20260603.csv`
 - 4-finale (ChunkPool): **1.20×** (within CI overlap with 2e/4a)  
 - 5 devalidated: **1.40×**  
 - 6 master vs 5 deval: **1.18×**; vs 2b: **1.65×**
-
-Raw artifacts:
-
-- 8 devalidated branches: `server_results/devalidated_hft_macro_20260603_150410/`
-- master vs phase5: `server_results/compare_master_vs_phase5_20260603_143852/`
 
 ---
 
@@ -178,7 +171,7 @@ Raw artifacts:
 
 **Micro / campaign_20260601_1319:** Several scenarios regressed vs 4a; ChunkPool **not** merged to `master`.
 
-**Testing:** Op-profiling and repaired planning-book `hft_macro` validated on this branch (`server_results/macro_op_profile_cloud_phase4_finale_t1/`).
+**Testing:** Op-profiling and repaired planning-book `hft_macro` validated on this branch.
 
 ---
 
@@ -232,7 +225,7 @@ Raw artifacts:
 | Price levels / ChunkPool | `report/phase4_price_level_storage_strategy.md`, `PROJECT_HISTORY.md` |
 | Perf + op profile | `report/phase5_macro_profiling_plan.md` |
 | Handle migration | `report/phase6_engine_handle_refactor_plan.md`, `report/phase6_benchmark_handle_migration.md` |
-| De-validation rollout | `report/phase6_devalidation_branch_rollout.md` |
+| Benchmark handle migration | `report/phase6_benchmark_handle_migration.md` |
 | Full experiment log | `PROJECT_HISTORY.md` |
 
 ### 4.3 Reproducing the Jun 2026 sweep
@@ -243,7 +236,7 @@ VERSIONS='phase1-finale-devalidated:p1-deval,...,phase4-finale-devalidated:p4fin
   SCENARIOS=hft_macro ORDERS=100000 LEVELS=100 BATCH_SIZES=100000 \
   ITERS=1 WARMUP_ITERS=1 TRIALS=10 \
   SERVER_IP=178.105.250.133 REPO_URL=https://github.com/Keyuan-Wang/low-latency-matching-engine.git \
-  INSTALL_DEPS=0 LOCAL_OUT_DIR=./server_results/devalidated_hft_macro_20260603_150410 \
+  INSTALL_DEPS=0 \
   bash benchmark/scripts/run_remote_compare.sh
 
 # master vs phase5 (already run)
@@ -262,4 +255,4 @@ VERSIONS='master:master,phase5-finale-devalidated:phase5-deval' \
 
 ---
 
-*Generated from cloud artifacts pulled 2026-06-03. Pipeline logs: `server_results/devalidated_hft_macro_20260603_150410/artifacts/pipeline.log`.*
+*Generated from cloud artifacts pulled 2026-06-03.*
